@@ -1,10 +1,10 @@
 import io
-from typing import TYPE_CHECKING, Any, BinaryIO, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, BinaryIO, Mapping, Optional, Sequence
 
 import requests
 from pydantic import BaseModel
 
-from .types.common import BASE_API_URL, NormalizedBbox, ObjectKey
+from .types.common import BASE_API_URL, NormalizedBbox, ObjectKey, TaxonID
 from .types.image import Image
 
 if TYPE_CHECKING:
@@ -12,24 +12,17 @@ if TYPE_CHECKING:
 
 
 class ScreenshotObjectPrediction(BaseModel):
-    key: ObjectKey
+    object_key: ObjectKey
     bbox: NormalizedBbox
-    parent: Optional[ObjectKey]
-    children: Sequence[ObjectKey]
-    siblings: Sequence[ObjectKey]
-    data: Mapping[str, Any]
-
-    """
-        {
-            type: UI element type,
-            text: Optional[str],
-            score: float
-        }
-    """
+    taxon_id: TaxonID
+    score: float | None
 
 
 class ScreenshotParseImageResponse(BaseModel):
     objects: Sequence[ScreenshotObjectPrediction]
+    sibling_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
+    parent_relationships: Mapping[ObjectKey, Optional[ObjectKey]]
+    child_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
 
 
 class Screenshot:
@@ -45,7 +38,9 @@ class Screenshot:
         if image.file_or_bytes is not None:
             if isinstance(image.file_or_bytes, bytes):
                 files["image_file"] = io.BytesIO(image.file_or_bytes)
-            elif isinstance(image.file_or_bytes, BinaryIO):  # pyright: ignore [reportUnnecessaryIsInstance]
+            elif isinstance(
+                image.file_or_bytes, BinaryIO
+            ):  # pyright: ignore [reportUnnecessaryIsInstance]
                 files["image_file"] = image.file_or_bytes
             else:
                 raise ValueError("Invalid image type: Must be bytes or BinaryIO")
