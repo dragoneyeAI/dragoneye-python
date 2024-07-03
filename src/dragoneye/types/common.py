@@ -3,6 +3,7 @@ from typing import NewType, Optional, Sequence, Tuple
 
 from pydantic import BaseModel
 
+ObjectKey = NewType("ObjectKey", str)
 NormalizedBbox = NewType("NormalizedBbox", Tuple[float, float, float, float])
 
 
