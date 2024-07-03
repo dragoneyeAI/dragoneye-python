@@ -20,7 +20,7 @@ class ScreenshotObjectPrediction(BaseModel):
 
 
 class ScreenshotParseImageResponse(BaseModel):
-    objects: Sequence[ScreenshotObjectPrediction]
+    objects: Mapping[ObjectKey, ScreenshotObjectPrediction]
     sibling_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
     parent_relationships: Mapping[ObjectKey, Optional[ObjectKey]]
     child_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
