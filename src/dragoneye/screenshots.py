@@ -15,6 +15,7 @@ class ScreenshotObjectPrediction(BaseModel):
     object_key: ObjectKey
     bbox: NormalizedBbox
     taxon_id: TaxonID
+    high_level_taxon_id: TaxonID
     score: float | None
 
 
