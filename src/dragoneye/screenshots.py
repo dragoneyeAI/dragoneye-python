@@ -1,5 +1,5 @@
 import io
-from typing import TYPE_CHECKING, BinaryIO, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, BinaryIO, Mapping, Sequence
 
 import requests
 from pydantic import BaseModel
@@ -22,7 +22,7 @@ class ScreenshotObjectPrediction(BaseModel):
 class ScreenshotParseImageResponse(BaseModel):
     objects: Mapping[ObjectKey, ScreenshotObjectPrediction]
     sibling_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
-    parent_relationships: Mapping[ObjectKey, Optional[ObjectKey]]
+    parent_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
     child_relationships: Mapping[ObjectKey, Sequence[ObjectKey]]
 
 
