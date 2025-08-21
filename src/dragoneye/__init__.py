@@ -6,7 +6,7 @@ from .classification import (
 )
 from .client import Dragoneye
 from .types.common import NormalizedBbox, TaxonID, TaxonPrediction, TaxonType
-from .types.image import Image
+from .types.media import Media
 
 __all__ = [
     "Classification",
@@ -14,7 +14,7 @@ __all__ = [
     "ClassificationPredictImageResponse",
     "ClassificationTraitRootPrediction",
     "Dragoneye",
-    "Image",
+    "Media",
     "NormalizedBbox",
     "TaxonID",
     "TaxonPrediction",
