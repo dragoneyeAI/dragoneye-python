@@ -1,7 +1,8 @@
-import time
+import asyncio
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
-import requests
+import aiohttp
+from aiohttp import ClientError
 from pydantic import BaseModel
 
 from .types.common import (
@@ -96,66 +97,64 @@ class Classification:
     def __init__(self, client: "Dragoneye"):
         self._client = client
 
-    def predict(
+    async def predict(
         self, media: Media, model_name: str
     ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
-        return self._predict_unified(media, model_name, frames_per_second=None)
+        return await self._predict_unified(media, model_name, frames_per_second=None)
 
-    def status(
+    async def status(
         self, prediction_task_uuid: PredictionTaskUUID
     ) -> PredictionTaskStatusResponse:
         """
         Given a prediction task UUID, return
         """
         url = f"{BASE_API_URL}/prediction-task/status?predictionTaskUuid={prediction_task_uuid}"
-
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                resp.raise_for_status()
+                payload = await resp.json()
 
-        return PredictionTaskStatusResponse.model_validate(response.json())
+        return PredictionTaskStatusResponse.model_validate(payload)
 
-    def get_results(
+    async def get_results(
         self, prediction_task_uuid: PredictionTaskUUID, prediction_type: PredictionType
     ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
         url = f"{BASE_API_URL}/prediction-task/results?predictionTaskUuid={prediction_task_uuid}"
-
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
         try:
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-        except requests.RequestException as error:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json()
+        except ClientError as error:
             raise PredictionTaskResultsUnavailableError(
                 f"Error getting prediction task results: {error}"
             )
 
         match prediction_type:
             case "image":
-                return ClassificationPredictImageResponse.model_validate(
-                    response.json()
-                )
+                return ClassificationPredictImageResponse.model_validate(payload)
             case "video":
-                return ClassificationPredictVideoResponse.model_validate(
-                    response.json()
-                )
-            case _:  # pyright: ignore[reportUnnecessaryComparison]
+                return ClassificationPredictVideoResponse.model_validate(payload)
+            case _:  # pyright: ignore [reportUnnecessaryComparison]
                 raise ValueError(f"Unsupported prediction type: {prediction_type}")
 
     ##### Internal API methods #####
-    def _predict_unified(
+    async def _predict_unified(
         self,
         media: Media,
         model_name: str,
         frames_per_second: Optional[int],
     ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
-        prediction_task_begin_response = self._begin_prediction_task(
+        prediction_task_begin_response = await self._begin_prediction_task(
             mime_type=media.mime_type,
             frames_per_second=frames_per_second,
         )
 
-        self._upload_media_to_prediction_task(
+        await self._upload_media_to_prediction_task(
             media, prediction_task_begin_response.signed_urls[0]
         )
 
@@ -164,75 +163,93 @@ class Classification:
             "model_name": model_name,
             "prediction_task_uuid": prediction_task_begin_response.prediction_task_uuid,
         }
+        predict_headers = {
+            "Authorization": f"Bearer {self._client.api_key}",
+        }
         try:
-            response = requests.post(predict_url, data=predict_data)
-            response.raise_for_status()
-        except requests.RequestException as error:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    predict_url, data=predict_data, headers=predict_headers
+                ) as resp:
+                    resp.raise_for_status()
+        except ClientError as error:
             raise PredictionTaskError("Error initiating prediction:", error)
 
-        status = self._wait_for_prediction_task_completion(
+        status = await self._wait_for_prediction_task_completion(
             prediction_task_uuid=prediction_task_begin_response.prediction_task_uuid
         )
 
         if _is_task_failed(status.status):
             raise PredictionTaskError(f"Prediction task failed: {status.status}")
 
-        return self.get_results(
+        return await self.get_results(
             prediction_task_uuid=status.prediction_task_uuid,
             prediction_type=status.prediction_type,
         )
 
-    def _wait_for_prediction_task_completion(
+    async def _wait_for_prediction_task_completion(
         self, prediction_task_uuid: PredictionTaskUUID, polling_interval: float = 1.0
     ) -> PredictionTaskStatusResponse:
         while True:
-            status = self.status(prediction_task_uuid)
+            status = await self.status(prediction_task_uuid)
             if _is_task_complete(status.status):
                 return status
-            time.sleep(polling_interval)
+            await asyncio.sleep(polling_interval)
 
-    def _upload_media_to_prediction_task(
+    async def _upload_media_to_prediction_task(
         self, media: Media, signed_url: _MediaUploadUrl
     ) -> None:
-        form_data = {}
-        for key, value in signed_url.presigned_post_request.fields.items():
-            form_data[key] = (None, value)
+        # Build multipart form: include all presigned fields + the file
+        form = aiohttp.FormData()
+        for k, v in signed_url.presigned_post_request.fields.items():
+            form.add_field(k, str(v))
 
-        form_data["file"] = ("file", media.bytes_io())
+        file_obj = media.bytes_io()
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass  # if it's already at start or non-seekable
+
+        form.add_field(
+            "file",
+            file_obj,
+            filename="file",
+        )
 
         try:
-            response = requests.post(
-                signed_url.presigned_post_request.url,
-                data=form_data,
-                headers={"Content-Type": "multipart/form-data"},
-            )
-            response.raise_for_status()
-        except requests.RequestException as error:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    signed_url.presigned_post_request.url,
+                    data=form,
+                ) as resp:
+                    resp.raise_for_status()
+        except ClientError as error:
             raise PredictionUploadError(
                 "Error uploading media to prediction task:", error
             )
 
-    def _begin_prediction_task(
+    async def _begin_prediction_task(
         self,
         mime_type: str,
         frames_per_second: Optional[int],
     ) -> _PredictionTaskBeginResponse:
         url = f"{BASE_API_URL}/prediction-task/begin"
 
-        form_data = {}
-        form_data["mimetype"] = mime_type
+        form_data = aiohttp.FormData()
+        form_data.add_field("mimetype", mime_type)
         if frames_per_second is not None:
-            form_data["frames_per_second"] = str(frames_per_second)
+            form_data.add_field("frames_per_second", str(frames_per_second))
 
         headers = {
             "Authorization": f"Bearer {self._client.api_key}",
-            "Content-Type": "multipart/form-data",
         }
 
         try:
-            response = requests.post(url, data=form_data, headers=headers)
-            response.raise_for_status()
-        except requests.RequestException as error:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=form_data, headers=headers) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json()
+        except ClientError as error:
             raise PredictionTaskBeginError("Error beginning prediction task:", error)
 
-        return _PredictionTaskBeginResponse.model_validate(response.json())
+        return _PredictionTaskBeginResponse.model_validate(payload)
