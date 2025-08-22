@@ -1,18 +1,20 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, overload
 
 import aiohttp
 from aiohttp import ClientError
 from pydantic import BaseModel
 
+from .models import (
+    ClassificationPredictImageResponse,
+    ClassificationPredictVideoResponse,
+    PredictionTaskStatusResponse,
+)
 from .types.common import (
     BASE_API_URL,
-    NormalizedBbox,
     PredictionTaskState,
     PredictionTaskUUID,
     PredictionType,
-    TaxonID,
-    TaxonPrediction,
 )
 from .types.exception import (
     IncorrectMediaTypeError,
@@ -25,34 +27,6 @@ from .types.media import Media
 
 if TYPE_CHECKING:
     from .client import Dragoneye
-
-
-class ClassificationTraitRootPrediction(BaseModel):
-    id: TaxonID
-    name: str
-    displayName: str
-    taxons: Sequence[TaxonPrediction]
-
-
-class ClassificationObjectPrediction(BaseModel):
-    normalizedBbox: NormalizedBbox
-    category: TaxonPrediction
-    traits: Sequence[ClassificationTraitRootPrediction]
-
-
-class ClassificationPredictImageResponse(BaseModel):
-    predictions: Sequence[ClassificationObjectPrediction]
-
-
-class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
-    frame_id: str
-    frame_index: int
-    timestamp_microseconds: int
-
-
-class ClassificationPredictVideoResponse(BaseModel):
-    timestamp_to_predictions: dict[float, Sequence[ClassificationVideoObjectPrediction]]
-    frames_per_second: int
 
 
 class _PresignedPostRequest(BaseModel):
@@ -69,12 +43,6 @@ class _PredictionTaskBeginResponse(BaseModel):
     prediction_task_uuid: PredictionTaskUUID
     prediction_type: PredictionType
     signed_urls: list[_MediaUploadUrl]
-
-
-class PredictionTaskStatusResponse(BaseModel):
-    prediction_task_uuid: PredictionTaskUUID
-    prediction_type: PredictionType
-    status: PredictionTaskState
 
 
 def _is_task_successful(status: PredictionTaskState) -> bool:
