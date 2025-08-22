@@ -161,6 +161,9 @@ class Classification:
                 f"Error getting prediction task results: {error}"
             )
 
+        # Add the prediction task uuid to the response before returning
+        payload["prediction_task_uuid"] = prediction_task_uuid
+
         match prediction_type:
             case "image":
                 return ClassificationPredictImageResponse.model_validate(payload)
