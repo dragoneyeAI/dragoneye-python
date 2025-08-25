@@ -41,7 +41,7 @@ class Classification:
     def __init__(self, client: "Dragoneye"):
         self._client = client
 
-    def predict(
+    def predict_image(
         self, image: Image, model_name: str
     ) -> ClassificationPredictImageResponse:
         url = f"{BASE_API_URL}/predict"
