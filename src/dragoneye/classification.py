@@ -1,5 +1,5 @@
-import io
-from typing import TYPE_CHECKING, BinaryIO, Sequence
+from io import BytesIO
+from typing import TYPE_CHECKING, Any, Sequence
 
 import requests
 from pydantic import BaseModel
@@ -46,16 +46,11 @@ class Classification:
     ) -> ClassificationPredictImageResponse:
         url = f"{BASE_API_URL}/predict"
 
-        files = {}
-        data = {}
+        files: dict[str, BytesIO] = {}
+        data: dict[str, str] = {}
 
         if image.file_or_bytes is not None:
-            if isinstance(image.file_or_bytes, bytes):
-                files["image_file"] = io.BytesIO(image.file_or_bytes)
-            elif isinstance(image.file_or_bytes, BinaryIO):  # pyright: ignore [reportUnnecessaryIsInstance]
-                files["image_file"] = image.file_or_bytes
-            else:
-                raise ValueError("Invalid image type: Must be bytes or BinaryIO")
+            files["image_file"] = image.bytes_io_x()
         elif image.url is not None:
             data["image_url"] = image.url
         else:
@@ -82,23 +77,14 @@ class Classification:
     ) -> ClassificationPredictProductResponse:
         url = f"{BASE_API_URL}/predict-product"
 
-        files = []
-        data = {}
+        files: list[tuple[str, BytesIO]] = []
+        data: dict[str, Any] = {}
 
         assert_consistent_data_type(images)
 
         for image in images:
             if image.file_or_bytes is not None:
-                if isinstance(image.file_or_bytes, bytes):
-                    files.append(("image_file", io.BytesIO(image.file_or_bytes)))
-                elif (
-                    isinstance(image.file_or_bytes, BinaryIO)  # pyright: ignore [reportUnnecessaryIsInstance]
-                    or issubclass(type(image.file_or_bytes), BinaryIO)
-                    or isinstance(image.file_or_bytes, io.BufferedReader)
-                ):
-                    files.append(("image_file", image.file_or_bytes))
-                else:
-                    raise ValueError("Invalid image type: Must be bytes or BinaryIO")
+                files.append(("image_file", image.bytes_io_x()))
             elif image.url is not None:
                 data.setdefault("image_urls", []).append(image.url)
 
