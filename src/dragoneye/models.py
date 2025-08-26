@@ -43,6 +43,8 @@ class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
 
 
 class ClassificationPredictVideoResponse(BaseModel):
-    timestamp_to_predictions: dict[float, Sequence[ClassificationVideoObjectPrediction]]
+    timestamp_us_to_predictions: dict[
+        int, Sequence[ClassificationVideoObjectPrediction]
+    ]
     frames_per_second: int
     prediction_task_uuid: PredictionTaskUUID

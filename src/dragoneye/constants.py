@@ -1,0 +1,2 @@
+PREDICTED_STATUS = "predicted"
+FAILED_STATUS_PREFIX = "failed"
