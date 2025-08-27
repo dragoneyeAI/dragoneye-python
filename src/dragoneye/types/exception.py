@@ -12,3 +12,7 @@ class PredictionTaskBeginError(Exception):
 
 class PredictionTaskResultsUnavailableError(Exception):
     pass
+
+
+class IncorrectMediaTypeError(Exception):
+    pass
