@@ -33,6 +33,7 @@ class ClassificationObjectPrediction(BaseModel):
 
 class ClassificationPredictImageResponse(BaseModel):
     predictions: Sequence[ClassificationObjectPrediction]
+    prediction_task_uuid: PredictionTaskUUID
 
 
 class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
@@ -44,3 +45,4 @@ class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
 class ClassificationPredictVideoResponse(BaseModel):
     timestamp_to_predictions: dict[float, Sequence[ClassificationVideoObjectPrediction]]
     frames_per_second: int
+    prediction_task_uuid: PredictionTaskUUID
