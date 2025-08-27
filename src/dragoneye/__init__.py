@@ -8,7 +8,7 @@ from .models import (
     ClassificationTraitRootPrediction,
 )
 from .types.common import NormalizedBbox, TaxonID, TaxonPrediction, TaxonType
-from .types.media import Media
+from .types.media import Image, Video
 
 __all__ = [
     "Classification",
@@ -16,7 +16,8 @@ __all__ = [
     "ClassificationPredictImageResponse",
     "ClassificationTraitRootPrediction",
     "Dragoneye",
-    "Media",
+    "Image",
+    "Video",
     "NormalizedBbox",
     "TaxonID",
     "TaxonPrediction",
