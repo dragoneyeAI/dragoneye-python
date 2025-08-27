@@ -1,10 +1,12 @@
 import asyncio
-from typing import TYPE_CHECKING, Any, Literal, Optional, overload
+import time
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import aiohttp
 from aiohttp import ClientError
 from pydantic import BaseModel
 
+from .constants import FAILED_STATUS_PREFIX, PREDICTED_STATUS
 from .models import (
     ClassificationPredictImageResponse,
     ClassificationPredictVideoResponse,
@@ -17,13 +19,13 @@ from .types.common import (
     PredictionType,
 )
 from .types.exception import (
-    IncorrectMediaTypeError,
     PredictionTaskBeginError,
     PredictionTaskError,
     PredictionTaskResultsUnavailableError,
+    PredictionTimeoutException,
     PredictionUploadError,
 )
-from .types.media import Media
+from .types.media import Image, Media, Video
 
 if TYPE_CHECKING:
     from .client import Dragoneye
@@ -46,11 +48,11 @@ class _PredictionTaskBeginResponse(BaseModel):
 
 
 def _is_task_successful(status: PredictionTaskState) -> bool:
-    return status == "predicted"
+    return status == PREDICTED_STATUS
 
 
 def _is_task_failed(status: PredictionTaskState) -> bool:
-    return status.startswith("failed")
+    return status.startswith(FAILED_STATUS_PREFIX)
 
 
 def _is_task_complete(status: PredictionTaskState) -> bool:
@@ -67,46 +69,31 @@ class Classification:
         self._client = client
 
     async def predict_image(
-        self, media: Media, model_name: str
+        self,
+        media: Image,
+        model_name: str,
+        timeout_seconds: int | None = None,
     ) -> ClassificationPredictImageResponse:
-        media_type = media.mime_type.split("/")[0]
-        match media_type:
-            case "image":
-                return await self._predict_unified(
-                    media=media,
-                    model_name=model_name,
-                    prediction_type="image",
-                    frames_per_second=None,
-                )
-            case "video":
-                raise IncorrectMediaTypeError(
-                    "Incorrect media type for predict_image, use predict_video instead"
-                )
-            case _:
-                raise IncorrectMediaTypeError(
-                    f"Unsupported media type for predict_image: {media.mime_type}"
-                )
+        return await self._predict_unified(
+            media=media,
+            model_name=model_name,
+            frames_per_second=None,
+            timeout_seconds=timeout_seconds,
+        )
 
     async def predict_video(
-        self, media: Media, model_name: str, frames_per_second: int
+        self,
+        media: Video,
+        model_name: str,
+        frames_per_second: int = 1,
+        timeout_seconds: int | None = None,
     ) -> ClassificationPredictVideoResponse:
-        media_type = media.mime_type.split("/")[0]
-        match media_type:
-            case "video":
-                return await self._predict_unified(
-                    media=media,
-                    model_name=model_name,
-                    prediction_type="video",
-                    frames_per_second=frames_per_second,
-                )
-            case "image":
-                raise IncorrectMediaTypeError(
-                    "Incorrect media type for predict_video, use predict_image instead"
-                )
-            case _:
-                raise IncorrectMediaTypeError(
-                    f"Unsupported media type for predict_video: {media.mime_type}"
-                )
+        return await self._predict_unified(
+            media=media,
+            model_name=model_name,
+            frames_per_second=frames_per_second,
+            timeout_seconds=timeout_seconds,
+        )
 
     async def status(
         self, prediction_task_uuid: PredictionTaskUUID
@@ -124,28 +111,46 @@ class Classification:
 
         return PredictionTaskStatusResponse.model_validate(payload)
 
+    async def get_image_results(
+        self,
+        prediction_task_uuid: PredictionTaskUUID,
+    ) -> ClassificationPredictImageResponse:
+        return await self._get_results_unified(
+            prediction_task_uuid=prediction_task_uuid,
+            prediction_type="image",
+        )
+
+    async def get_video_results(
+        self,
+        prediction_task_uuid: PredictionTaskUUID,
+    ) -> ClassificationPredictVideoResponse:
+        return await self._get_results_unified(
+            prediction_task_uuid=prediction_task_uuid,
+            prediction_type="video",
+        )
+
     @overload
-    async def get_results(
+    async def _get_results_unified(
         self,
         prediction_task_uuid: PredictionTaskUUID,
         prediction_type: Literal["image"],
     ) -> ClassificationPredictImageResponse: ...
 
     @overload
-    async def get_results(
+    async def _get_results_unified(
         self,
         prediction_task_uuid: PredictionTaskUUID,
         prediction_type: Literal["video"],
     ) -> ClassificationPredictVideoResponse: ...
 
     @overload
-    async def get_results(
+    async def _get_results_unified(
         self,
         prediction_task_uuid: PredictionTaskUUID,
         prediction_type: PredictionType,
     ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse: ...
 
-    async def get_results(
+    async def _get_results_unified(
         self, prediction_task_uuid: PredictionTaskUUID, prediction_type: PredictionType
     ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
         url = f"{BASE_API_URL}/prediction-task/results?predictionTaskUuid={prediction_task_uuid}"
@@ -176,37 +181,32 @@ class Classification:
     @overload
     async def _predict_unified(
         self,
-        media: Media,
+        media: Image,
         model_name: str,
-        prediction_type: Literal["image"],
-        frames_per_second: Literal[None],
+        frames_per_second: int | None,
+        timeout_seconds: int | None = None,
     ) -> ClassificationPredictImageResponse: ...
 
     @overload
     async def _predict_unified(
         self,
-        media: Media,
+        media: Video,
         model_name: str,
-        prediction_type: Literal["video"],
-        frames_per_second: Optional[int],
+        frames_per_second: int | None,
+        timeout_seconds: int | None = None,
     ) -> ClassificationPredictVideoResponse: ...
 
     async def _predict_unified(
         self,
-        media: Media,
+        media: Image | Video,
         model_name: str,
-        prediction_type: PredictionType,
-        frames_per_second: Optional[int],
+        frames_per_second: int | None,
+        timeout_seconds: int | None = None,
     ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
         prediction_task_begin_response = await self._begin_prediction_task(
             mime_type=media.mime_type,
             frames_per_second=frames_per_second,
         )
-
-        if prediction_task_begin_response.prediction_type != prediction_type:
-            raise PredictionTaskBeginError(
-                f"Prediction type mismatch: {prediction_task_begin_response.prediction_type} != {prediction_type}"
-            )
 
         await self._upload_media_to_prediction_task(
             media, prediction_task_begin_response.signed_urls[0]
@@ -230,24 +230,38 @@ class Classification:
             raise PredictionTaskError("Error initiating prediction:", error)
 
         status = await self._wait_for_prediction_task_completion(
-            prediction_task_uuid=prediction_task_begin_response.prediction_task_uuid
+            prediction_task_uuid=prediction_task_begin_response.prediction_task_uuid,
+            timeout_seconds=timeout_seconds,
         )
 
         if _is_task_failed(status.status):
             raise PredictionTaskError(f"Prediction task failed: {status.status}")
 
-        return await self.get_results(
+        return await self._get_results_unified(
             prediction_task_uuid=status.prediction_task_uuid,
-            prediction_type=prediction_type,
+            prediction_type=prediction_task_begin_response.prediction_type,
         )
 
     async def _wait_for_prediction_task_completion(
-        self, prediction_task_uuid: PredictionTaskUUID, polling_interval: float = 1.0
+        self,
+        prediction_task_uuid: PredictionTaskUUID,
+        polling_interval: float = 1.0,
+        timeout_seconds: int | None = None,
     ) -> PredictionTaskStatusResponse:
+        start_time = time.monotonic()
         while True:
+            # Check if we've exceeded the timeout
+            if timeout_seconds is not None:
+                elapsed = time.monotonic() - start_time
+                if elapsed >= timeout_seconds:
+                    raise PredictionTimeoutException(
+                        f"Prediction task {prediction_task_uuid} did not complete within {timeout_seconds} seconds."
+                    )
+
             status = await self.status(prediction_task_uuid)
             if _is_task_complete(status.status):
                 return status
+
             await asyncio.sleep(polling_interval)
 
     async def _upload_media_to_prediction_task(
@@ -285,7 +299,7 @@ class Classification:
     async def _begin_prediction_task(
         self,
         mime_type: str,
-        frames_per_second: Optional[int],
+        frames_per_second: int | None,
     ) -> _PredictionTaskBeginResponse:
         url = f"{BASE_API_URL}/prediction-task/begin"
 

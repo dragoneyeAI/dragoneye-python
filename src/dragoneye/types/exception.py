@@ -14,5 +14,5 @@ class PredictionTaskResultsUnavailableError(Exception):
     pass
 
 
-class IncorrectMediaTypeError(Exception):
+class PredictionTimeoutException(Exception):
     pass
