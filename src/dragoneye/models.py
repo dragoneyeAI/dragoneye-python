@@ -38,7 +38,6 @@ class ClassificationPredictImageResponse(BaseModel):
 
 class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
     frame_id: str
-    frame_index: int
     timestamp_microseconds: int
 
 
