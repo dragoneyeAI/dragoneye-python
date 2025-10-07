@@ -1,3 +1,5 @@
 requests
 pydantic>=2
 typing-extensions>=4.0.0
+backoff>=2.0.0
+aiohttp
