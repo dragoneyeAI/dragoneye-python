@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union, overload
 
 import aiohttp
 from aiohttp import ClientError
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 class _PresignedPostRequest(BaseModel):
     url: str
-    fields: dict[str, Any]
+    fields: Dict[str, Any]
 
 
 class _MediaUploadUrl(BaseModel):
@@ -44,7 +44,7 @@ class _MediaUploadUrl(BaseModel):
 class _PredictionTaskBeginResponse(BaseModel):
     prediction_task_uuid: PredictionTaskUUID
     prediction_type: PredictionType
-    signed_urls: list[_MediaUploadUrl]
+    signed_urls: List[_MediaUploadUrl]
 
 
 def _is_task_successful(status: PredictionTaskState) -> bool:
@@ -72,7 +72,7 @@ class Classification:
         self,
         media: Image,
         model_name: str,
-        timeout_seconds: int | None = None,
+        timeout_seconds: Optional[int] = None,
     ) -> ClassificationPredictImageResponse:
         return await self._predict_unified(
             media=media,
@@ -86,7 +86,7 @@ class Classification:
         media: Video,
         model_name: str,
         frames_per_second: int = 1,
-        timeout_seconds: int | None = None,
+        timeout_seconds: Optional[int] = None,
     ) -> ClassificationPredictVideoResponse:
         return await self._predict_unified(
             media=media,
@@ -148,11 +148,13 @@ class Classification:
         self,
         prediction_task_uuid: PredictionTaskUUID,
         prediction_type: PredictionType,
-    ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse: ...
+    ) -> Union[
+        ClassificationPredictImageResponse, ClassificationPredictVideoResponse
+    ]: ...
 
     async def _get_results_unified(
         self, prediction_task_uuid: PredictionTaskUUID, prediction_type: PredictionType
-    ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
+    ) -> Union[ClassificationPredictImageResponse, ClassificationPredictVideoResponse]:
         url = f"{BASE_API_URL}/prediction-task/results?predictionTaskUuid={prediction_task_uuid}"
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
@@ -169,13 +171,12 @@ class Classification:
         # Add the prediction task uuid to the response before returning
         payload["prediction_task_uuid"] = prediction_task_uuid
 
-        match prediction_type:
-            case "image":
-                return ClassificationPredictImageResponse.model_validate(payload)
-            case "video":
-                return ClassificationPredictVideoResponse.model_validate(payload)
-            case _:  # pyright: ignore [reportUnnecessaryComparison]
-                raise ValueError(f"Unsupported prediction type: {prediction_type}")
+        if prediction_type == "image":
+            return ClassificationPredictImageResponse.model_validate(payload)
+        elif prediction_type == "video":
+            return ClassificationPredictVideoResponse.model_validate(payload)
+        else:
+            raise ValueError(f"Unsupported prediction type: {prediction_type}")
 
     ##### Internal API methods #####
     @overload
@@ -183,8 +184,8 @@ class Classification:
         self,
         media: Image,
         model_name: str,
-        frames_per_second: int | None,
-        timeout_seconds: int | None = None,
+        frames_per_second: Optional[int],
+        timeout_seconds: Optional[int] = None,
     ) -> ClassificationPredictImageResponse: ...
 
     @overload
@@ -192,17 +193,17 @@ class Classification:
         self,
         media: Video,
         model_name: str,
-        frames_per_second: int | None,
-        timeout_seconds: int | None = None,
+        frames_per_second: Optional[int],
+        timeout_seconds: Optional[int] = None,
     ) -> ClassificationPredictVideoResponse: ...
 
     async def _predict_unified(
         self,
-        media: Image | Video,
+        media: Union[Image, Video],
         model_name: str,
-        frames_per_second: int | None,
-        timeout_seconds: int | None = None,
-    ) -> ClassificationPredictImageResponse | ClassificationPredictVideoResponse:
+        frames_per_second: Optional[int],
+        timeout_seconds: Optional[int] = None,
+    ) -> Union[ClassificationPredictImageResponse, ClassificationPredictVideoResponse]:
         prediction_task_begin_response = await self._begin_prediction_task(
             mime_type=media.mime_type,
             frames_per_second=frames_per_second,
@@ -246,7 +247,7 @@ class Classification:
         self,
         prediction_task_uuid: PredictionTaskUUID,
         polling_interval: float = 1.0,
-        timeout_seconds: int | None = None,
+        timeout_seconds: Optional[int] = None,
     ) -> PredictionTaskStatusResponse:
         start_time = time.monotonic()
         while True:
@@ -299,7 +300,7 @@ class Classification:
     async def _begin_prediction_task(
         self,
         mime_type: str,
-        frames_per_second: int | None,
+        frames_per_second: Optional[int],
     ) -> _PredictionTaskBeginResponse:
         url = f"{BASE_API_URL}/prediction-task/begin"
 

@@ -5,7 +5,9 @@ import os
 from dataclasses import dataclass
 from io import BufferedReader, BytesIO
 from pathlib import Path
-from typing import BinaryIO, ClassVar, Self, Union
+from typing import BinaryIO, ClassVar, Optional, Tuple, Union
+
+from typing_extensions import Self
 
 
 @dataclass(frozen=True)
@@ -16,7 +18,7 @@ class Media:
     mime_type: str
 
     # Subclasses set this to enforce a family of mimetypes, e.g. ("image/",)
-    ACCEPT_PREFIXES: ClassVar[tuple[str, ...]] = ()
+    ACCEPT_PREFIXES: ClassVar[Tuple[str, ...]] = ()
 
     def __post_init__(self) -> None:
         # Enforce subtype-specific mimetype families when specified.
@@ -47,7 +49,7 @@ class Media:
         cls,
         path: Union[str, os.PathLike[str]],
         *,
-        mime_type: str | None = None,
+        mime_type: Optional[str] = None,
         guess_from_extension: bool = True,
         read_into_memory: bool = False,
     ) -> Self:
@@ -118,7 +120,7 @@ class Media:
             "Invalid media source: expected bytes, BytesIO, or a readable binary stream."
         )
 
-    def size_bytes(self) -> int | None:
+    def size_bytes(self) -> Optional[int]:
         """
         Best-effort size inference without consuming the stream.
         Returns None if size can't be determined cheaply.
@@ -152,20 +154,20 @@ class Media:
 class Image(Media):
     """Media restricted to image/* mimetypes."""
 
-    ACCEPT_PREFIXES: ClassVar[tuple[str, ...]] = ("image/",)
+    ACCEPT_PREFIXES: ClassVar[Tuple[str, ...]] = ("image/",)
 
 
 @dataclass(frozen=True)
 class Video(Media):
     """Media restricted to video/* mimetypes."""
 
-    ACCEPT_PREFIXES: ClassVar[tuple[str, ...]] = ("video/",)
+    ACCEPT_PREFIXES: ClassVar[Tuple[str, ...]] = ("video/",)
 
 
 # ---------- Helpers ----------
 
 
-def _tell_safe(stream: BinaryIO) -> int | None:
+def _tell_safe(stream: BinaryIO) -> Optional[int]:
     try:
         if hasattr(stream, "tell"):
             return stream.tell()
@@ -174,7 +176,7 @@ def _tell_safe(stream: BinaryIO) -> int | None:
     return None
 
 
-def _seek_safe(stream: BinaryIO, pos: int | None) -> None:
+def _seek_safe(stream: BinaryIO, pos: Optional[int]) -> None:
     if pos is None:
         return
     try:

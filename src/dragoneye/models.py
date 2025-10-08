@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Dict, Sequence
 
 from pydantic import BaseModel
 
@@ -42,7 +42,7 @@ class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
 
 
 class ClassificationPredictVideoResponse(BaseModel):
-    timestamp_us_to_predictions: dict[
+    timestamp_us_to_predictions: Dict[
         int, Sequence[ClassificationVideoObjectPrediction]
     ]
     frames_per_second: int
