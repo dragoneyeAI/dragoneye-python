@@ -1,8 +1,10 @@
 import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union, overload
 
 import aiohttp
+import backoff
 from aiohttp import ClientError
 from pydantic import BaseModel
 
@@ -68,6 +70,28 @@ class Classification:
     def __init__(self, client: "Dragoneye"):
         self._client = client
 
+        # Create a reusable backoff decorator for 429 rate limit errors
+        def _should_retry_429(exception: Exception) -> bool:
+            """Check if exception is a 429 rate limit error"""
+            return (
+                isinstance(exception, aiohttp.ClientResponseError)
+                and exception.status == 429
+            )
+
+        # Store the backoff decorator as an instance method
+        self._backoff_on_429 = backoff.on_exception(
+            wait_gen=backoff.expo,
+            exception=aiohttp.ClientResponseError,
+            max_tries=client.max_retries,
+            max_time=client.max_backoff_time,
+            on_backoff=lambda e: logging.info(
+                f"Rate limit exceeded - backing off: {e}"
+            ),
+            on_giveup=lambda e: logging.info(f"Rate limit exceeded - giving up: {e}"),
+            giveup=lambda e: not _should_retry_429(e),
+            jitter=client.backoff_jitter,
+        )
+
     async def predict_image(
         self,
         media: Image,
@@ -104,11 +128,15 @@ class Classification:
         url = f"{BASE_API_URL}/prediction-task/status?predictionTaskUuid={prediction_task_uuid}"
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                resp.raise_for_status()
-                payload = await resp.json()
+        @self._backoff_on_429
+        async def _make_request():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json()
+            return payload
 
+        payload = await _make_request()
         return PredictionTaskStatusResponse.model_validate(payload)
 
     async def get_image_results(
@@ -158,11 +186,16 @@ class Classification:
         url = f"{BASE_API_URL}/prediction-task/results?predictionTaskUuid={prediction_task_uuid}"
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
-        try:
+        @self._backoff_on_429
+        async def _make_request():
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as resp:
                     resp.raise_for_status()
                     payload = await resp.json()
+            return payload
+
+        try:
+            payload = await _make_request()
         except ClientError as error:
             raise PredictionTaskResultsUnavailableError(
                 f"Error getting prediction task results: {error}"
@@ -221,12 +254,17 @@ class Classification:
         predict_headers = {
             "Authorization": f"Bearer {self._client.api_key}",
         }
-        try:
+
+        @self._backoff_on_429
+        async def _make_request():
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     predict_url, data=predict_data, headers=predict_headers
                 ) as resp:
                     resp.raise_for_status()
+
+        try:
+            await _make_request()
         except ClientError as error:
             raise PredictionTaskError("Error initiating prediction:", error)
 
@@ -313,11 +351,16 @@ class Classification:
             "Authorization": f"Bearer {self._client.api_key}",
         }
 
-        try:
+        @self._backoff_on_429
+        async def _make_request():
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=form_data, headers=headers) as resp:
                     resp.raise_for_status()
                     payload = await resp.json()
+            return payload
+
+        try:
+            payload = await _make_request()
         except ClientError as error:
             raise PredictionTaskBeginError("Error beginning prediction task:", error)
 
