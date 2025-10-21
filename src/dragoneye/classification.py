@@ -97,12 +97,14 @@ class Classification:
         media: Image,
         model_name: str,
         timeout_seconds: Optional[int] = None,
+        **kwargs: Any,
     ) -> ClassificationPredictImageResponse:
         return await self._predict_unified(
             media=media,
             model_name=model_name,
             frames_per_second=None,
             timeout_seconds=timeout_seconds,
+            **kwargs,
         )
 
     async def predict_video(
@@ -111,12 +113,14 @@ class Classification:
         model_name: str,
         frames_per_second: int = 1,
         timeout_seconds: Optional[int] = None,
+        **kwargs: Any,
     ) -> ClassificationPredictVideoResponse:
         return await self._predict_unified(
             media=media,
             model_name=model_name,
             frames_per_second=frames_per_second,
             timeout_seconds=timeout_seconds,
+            **kwargs,
         )
 
     async def status(
@@ -219,6 +223,7 @@ class Classification:
         model_name: str,
         frames_per_second: Optional[int],
         timeout_seconds: Optional[int] = None,
+        **kwargs: Any,
     ) -> ClassificationPredictImageResponse: ...
 
     @overload
@@ -228,6 +233,7 @@ class Classification:
         model_name: str,
         frames_per_second: Optional[int],
         timeout_seconds: Optional[int] = None,
+        **kwargs: Any,
     ) -> ClassificationPredictVideoResponse: ...
 
     async def _predict_unified(
@@ -236,6 +242,7 @@ class Classification:
         model_name: str,
         frames_per_second: Optional[int],
         timeout_seconds: Optional[int] = None,
+        **kwargs: Any,
     ) -> Union[ClassificationPredictImageResponse, ClassificationPredictVideoResponse]:
         prediction_task_begin_response = await self._begin_prediction_task(
             mime_type=media.mime_type,
@@ -250,6 +257,7 @@ class Classification:
         predict_data = {
             "model_name": model_name,
             "prediction_task_uuid": prediction_task_begin_response.prediction_task_uuid,
+            **kwargs,
         }
         predict_headers = {
             "Authorization": f"Bearer {self._client.api_key}",
