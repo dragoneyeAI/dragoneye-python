@@ -15,6 +15,7 @@ class Media:
     """Generic binary media + mime_type with conservative, non-destructive access."""
 
     file_or_bytes: Union[bytes, BytesIO, BinaryIO, BufferedReader]
+    name: Optional[str]
     mime_type: str
 
     # Subclasses set this to enforce a family of mimetypes, e.g. ("image/",)
@@ -33,16 +34,33 @@ class Media:
     # ---------- Convenience constructors ----------
 
     @classmethod
-    def from_bytes(cls, data: bytes, mime_type: str) -> Self:
-        return cls(file_or_bytes=data, mime_type=mime_type)
+    def from_bytes(
+        cls, data: bytes, mime_type: str, name: Optional[str] = None
+    ) -> Self:
+        """
+        Create a Media (or subclass) from raw bytes.
+
+        - `data`: Raw bytes of the media content.
+        - `mime_type`: The MIME type of the media (e.g., 'image/jpeg').
+        - `name`: Optional non-unique descriptive identifier provided by the user
+          for identifying or tracking responses to inputs.
+        """
+        return cls(file_or_bytes=data, mime_type=mime_type, name=name)
 
     @classmethod
-    def from_stream(cls, stream: BinaryIO, *, mime_type: str) -> Self:
+    def from_stream(
+        cls, stream: BinaryIO, *, mime_type: str, name: Optional[str] = None
+    ) -> Self:
         """
         Accepts any readable binary stream (e.g., open('file', 'rb')).
         Keeps the stream as-is; reading is deferred to bytes_io().
+
+        - `stream`: A readable binary stream.
+        - `mime_type`: The MIME type of the media (e.g., 'image/jpeg').
+        - `name`: Optional non-unique descriptive identifier provided by the user
+          for identifying or tracking responses to inputs.
         """
-        return cls(file_or_bytes=stream, mime_type=mime_type)
+        return cls(file_or_bytes=stream, mime_type=mime_type, name=name)
 
     @classmethod
     def from_path(
@@ -50,6 +68,7 @@ class Media:
         path: Union[str, os.PathLike[str]],
         *,
         mime_type: Optional[str] = None,
+        name: Optional[str] = None,
         guess_from_extension: bool = True,
         read_into_memory: bool = False,
     ) -> Self:
@@ -59,6 +78,9 @@ class Media:
         - `path`: Path to the file on disk.
         - `mime_type`: Explicit mime type. If omitted and `guess_from_extension=True`,
            we'll try to guess from the file extension.
+        - `name`: Optional non-unique descriptive identifier provided by the user
+          for identifying or tracking responses to inputs. If not provided, will
+          default to the filename from the path.
         - `read_into_memory=True`: load file bytes into memory (closes file immediately).
           Otherwise, keep an open file stream.
         """
@@ -74,12 +96,15 @@ class Media:
                 f"mime_type is required for {path} (no extension-based guess available)."
             )
 
+        # Use provided name or extract from path
+        media_name = name if name is not None else path.name
+
         if read_into_memory:
             data = path.read_bytes()
-            return cls(file_or_bytes=data, mime_type=mt)
+            return cls(file_or_bytes=data, mime_type=mt, name=media_name)
         else:
             f = path.open("rb")
-            return cls(file_or_bytes=f, mime_type=mt)
+            return cls(file_or_bytes=f, mime_type=mt, name=media_name)
 
     # ---------- Utilities ----------
 
