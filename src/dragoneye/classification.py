@@ -247,6 +247,7 @@ class Classification:
         prediction_task_begin_response = await self._begin_prediction_task(
             mime_type=media.mime_type,
             frames_per_second=frames_per_second,
+            file_name=media.name,
         )
 
         await self._upload_media_to_prediction_task(
@@ -347,11 +348,15 @@ class Classification:
         self,
         mime_type: str,
         frames_per_second: Optional[int],
+        file_name: Optional[str],
     ) -> _PredictionTaskBeginResponse:
         url = f"{BASE_API_URL}/prediction-task/begin"
 
         form_data = aiohttp.FormData()
         form_data.add_field("mimetype", mime_type)
+        if file_name is not None:
+            form_data.add_field("file_name", file_name)
+
         if frames_per_second is not None:
             form_data.add_field("frames_per_second", str(frames_per_second))
 
