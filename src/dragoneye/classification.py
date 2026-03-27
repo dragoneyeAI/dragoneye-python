@@ -255,7 +255,7 @@ class Classification:
         )
 
         predict_url = f"{BASE_API_URL}/predict"
-        predict_data = {
+        predict_data: dict[str, Any] = {
             "model_name": model_name,
             "prediction_task_uuid": prediction_task_begin_response.prediction_task_uuid,
             **kwargs,
