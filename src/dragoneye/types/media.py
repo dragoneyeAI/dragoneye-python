@@ -136,10 +136,10 @@ class Media:
 
         # For any readable object with .read()
         if hasattr(src, "read"):
-            pos = _tell_safe(src)
-            data = src.read()
-            _seek_safe(src, pos)
-            return BytesIO(data)
+            pos = _tell_safe(src) # pyright: ignore [reportArgumentType]
+            data = src.read() # pyright: ignore [reportUnknownMemberType, reportAttributeAccessIssue, reportUnknownVariableType]
+            _seek_safe(src, pos) # pyright: ignore [reportArgumentType]
+            return BytesIO(data) # pyright: ignore [reportUnknownArgumentType]
 
         raise TypeError(
             "Invalid media source: expected bytes, BytesIO, or a readable binary stream."
