@@ -3,23 +3,30 @@ from .classification import (
 )
 from .client import Dragoneye
 from .models import (
+    ClassificationAttributeOption,
+    ClassificationAttributeResponse,
+    ClassificationCategory,
+    ClassificationCategoryPrediction,
     ClassificationObjectPrediction,
     ClassificationPredictImageResponse,
-    ClassificationTraitRootPrediction,
+    ClassificationPredictVideoResponse,
+    ClassificationVideoObjectPrediction,
 )
-from .types.common import NormalizedBbox, TaxonID, TaxonPrediction, TaxonType
+from .types.common import NormalizedBbox
 from .types.media import Image, Video
 
 __all__ = [
     "Classification",
+    "ClassificationAttributeOption",
+    "ClassificationAttributeResponse",
+    "ClassificationCategory",
+    "ClassificationCategoryPrediction",
     "ClassificationObjectPrediction",
     "ClassificationPredictImageResponse",
-    "ClassificationTraitRootPrediction",
+    "ClassificationPredictVideoResponse",
+    "ClassificationVideoObjectPrediction",
     "Dragoneye",
     "Image",
-    "Video",
     "NormalizedBbox",
-    "TaxonID",
-    "TaxonPrediction",
-    "TaxonType",
+    "Video",
 ]
