@@ -354,6 +354,7 @@ class Classification:
 
         form_data = aiohttp.FormData()
         form_data.add_field("mimetype", mime_type)
+        form_data.add_field("response_version", "object")
         if file_name is not None:
             form_data.add_field("file_name", file_name)
 

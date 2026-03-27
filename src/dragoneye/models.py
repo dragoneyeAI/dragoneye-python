@@ -1,4 +1,4 @@
-from typing import Dict, Sequence
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -7,8 +7,6 @@ from dragoneye.types.common import (
     PredictionTaskState,
     PredictionTaskUUID,
     PredictionType,
-    TaxonID,
-    TaxonPrediction,
 )
 
 
@@ -18,22 +16,38 @@ class PredictionTaskStatusResponse(BaseModel):
     status: PredictionTaskState
 
 
-class ClassificationTraitRootPrediction(BaseModel):
-    id: TaxonID
+class ClassificationAttributeOption(BaseModel):
+    option_id: int
     name: str
-    displayName: str
-    taxons: Sequence[TaxonPrediction]
+    score: float
+
+
+class ClassificationAttributeResponse(BaseModel):
+    attribute_id: int
+    name: str
+    options: List[ClassificationAttributeOption]
+
+
+class ClassificationCategory(BaseModel):
+    id: int
+    name: str
+    score: float
+
+
+class ClassificationCategoryPrediction(BaseModel):
+    category: ClassificationCategory
+    attributes: List[ClassificationAttributeResponse]
 
 
 class ClassificationObjectPrediction(BaseModel):
     normalizedBbox: NormalizedBbox
-    category: TaxonPrediction
-    traits: Sequence[ClassificationTraitRootPrediction]
+    predictions: List[ClassificationCategoryPrediction]
 
 
 class ClassificationPredictImageResponse(BaseModel):
-    predictions: Sequence[ClassificationObjectPrediction]
+    object_predictions: List[ClassificationObjectPrediction]
     prediction_task_uuid: PredictionTaskUUID
+    original_file_name: Optional[str]
 
 
 class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
@@ -43,7 +57,8 @@ class ClassificationVideoObjectPrediction(ClassificationObjectPrediction):
 
 class ClassificationPredictVideoResponse(BaseModel):
     timestamp_us_to_predictions: Dict[
-        int, Sequence[ClassificationVideoObjectPrediction]
+        int, List[ClassificationVideoObjectPrediction]
     ]
     frames_per_second: int
     prediction_task_uuid: PredictionTaskUUID
+    original_file_name: Optional[str]
