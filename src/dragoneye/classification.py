@@ -2,10 +2,12 @@ import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union, overload
+from urllib.parse import urlencode
 
 import aiohttp
 import backoff
 from aiohttp import ClientError
+from multidict import CIMultiDict, CIMultiDictProxy
 from pydantic import BaseModel
 
 from .constants import FAILED_STATUS_PREFIX, PREDICTED_STATUS
@@ -13,6 +15,10 @@ from .models import (
     ClassificationPredictImageResponse,
     ClassificationPredictVideoResponse,
     PredictionTaskStatusResponse,
+)
+from .parquet_deserializer import (
+    deserialize_image_predictions,
+    deserialize_video_predictions,
 )
 from .types.common import (
     BASE_API_URL,
@@ -129,7 +135,8 @@ class Classification:
         """
         Given a prediction task UUID, return
         """
-        url = f"{BASE_API_URL}/prediction-task/status?predictionTaskUuid={prediction_task_uuid}"
+        query = urlencode({"predictionTaskUuid": prediction_task_uuid})
+        url = f"{BASE_API_URL}/prediction-task/status?{query}"
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
         @self._backoff_on_429
@@ -187,31 +194,60 @@ class Classification:
     async def _get_results_unified(
         self, prediction_task_uuid: PredictionTaskUUID, prediction_type: PredictionType
     ) -> Union[ClassificationPredictImageResponse, ClassificationPredictVideoResponse]:
-        url = f"{BASE_API_URL}/prediction-task/results?predictionTaskUuid={prediction_task_uuid}"
+        query = urlencode(
+            {
+                "predictionTaskUuid": prediction_task_uuid,
+                "response_version": "parquet",
+            }
+        )
+        url = f"{BASE_API_URL}/prediction-task/results?{query}"
         headers = {"Authorization": f"Bearer {self._client.api_key}"}
 
         @self._backoff_on_429
-        async def _make_request():
+        async def _make_request() -> tuple[bytes, CIMultiDictProxy[str]]:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as resp:
+                    if resp.status == 400:
+                        payload = await resp.json()
+                        raise PredictionTaskResultsUnavailableError(
+                            payload.get("detail", "")
+                        )
                     resp.raise_for_status()
-                    payload = await resp.json()
-            return payload
+                    body_bytes = await resp.read()
+                    response_headers = CIMultiDictProxy(CIMultiDict(resp.headers))
+            return body_bytes, response_headers
 
         try:
-            payload = await _make_request()
+            parquet_bytes, response_headers = await _make_request()
+        except PredictionTaskResultsUnavailableError:
+            raise
         except ClientError as error:
             raise PredictionTaskResultsUnavailableError(
                 f"Error getting prediction task results: {error}"
             )
 
-        # Add the prediction task uuid to the response before returning
-        payload["prediction_task_uuid"] = prediction_task_uuid
+        original_file_name = response_headers.get("X-Original-File-Name")
 
         if prediction_type == "image":
-            return ClassificationPredictImageResponse.model_validate(payload)
+            return ClassificationPredictImageResponse(
+                object_predictions=deserialize_image_predictions(parquet_bytes),
+                prediction_task_uuid=prediction_task_uuid,
+                original_file_name=original_file_name,
+            )
         elif prediction_type == "video":
-            return ClassificationPredictVideoResponse.model_validate(payload)
+            frames_per_second_header = response_headers.get("X-Frames-Per-Second")
+            if frames_per_second_header is None:
+                raise PredictionTaskResultsUnavailableError(
+                    "Missing X-Frames-Per-Second header on video prediction response"
+                )
+            return ClassificationPredictVideoResponse(
+                timestamp_us_to_predictions=deserialize_video_predictions(
+                    parquet_bytes
+                ),
+                frames_per_second=int(frames_per_second_header),
+                prediction_task_uuid=prediction_task_uuid,
+                original_file_name=original_file_name,
+            )
         else:
             raise ValueError(f"Unsupported prediction type: {prediction_type}")
 
@@ -354,7 +390,7 @@ class Classification:
 
         form_data = aiohttp.FormData()
         form_data.add_field("mimetype", mime_type)
-        form_data.add_field("response_version", "object")
+        form_data.add_field("response_version", "parquet")
         if file_name is not None:
             form_data.add_field("file_name", file_name)
 
@@ -369,12 +405,17 @@ class Classification:
         async def _make_request():
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=form_data, headers=headers) as resp:
+                    if resp.status == 400:
+                        error_payload = await resp.json()
+                        raise PredictionTaskBeginError(error_payload.get("detail", ""))
                     resp.raise_for_status()
                     payload = await resp.json()
             return payload
 
         try:
             payload = await _make_request()
+        except PredictionTaskBeginError:
+            raise
         except ClientError as error:
             raise PredictionTaskBeginError("Error beginning prediction task:", error)
 

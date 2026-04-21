@@ -13,6 +13,13 @@ from .models import (
     ClassificationVideoObjectPrediction,
 )
 from .types.common import NormalizedBbox
+from .types.exception import (
+    PredictionTaskBeginError,
+    PredictionTaskError,
+    PredictionTaskResultsUnavailableError,
+    PredictionTimeoutException,
+    PredictionUploadError,
+)
 from .types.media import Image, Video
 
 __all__ = [
@@ -28,5 +35,10 @@ __all__ = [
     "Dragoneye",
     "Image",
     "NormalizedBbox",
+    "PredictionTaskBeginError",
+    "PredictionTaskError",
+    "PredictionTaskResultsUnavailableError",
+    "PredictionTimeoutException",
+    "PredictionUploadError",
     "Video",
 ]
