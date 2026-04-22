@@ -137,7 +137,7 @@ class Classification:
         """
         query = urlencode({"predictionTaskUuid": prediction_task_uuid})
         url = f"{BASE_API_URL}/prediction-task/status?{query}"
-        headers = {"Authorization": f"Bearer {self._client.api_key}"}
+        headers = {"X-API-Key": self._client.api_key}
 
         @self._backoff_on_429
         async def _make_request():
@@ -201,7 +201,7 @@ class Classification:
             }
         )
         url = f"{BASE_API_URL}/prediction-task/results?{query}"
-        headers = {"Authorization": f"Bearer {self._client.api_key}"}
+        headers = {"X-API-Key": self._client.api_key}
 
         @self._backoff_on_429
         async def _make_request() -> tuple[bytes, CIMultiDictProxy[str]]:
@@ -297,7 +297,7 @@ class Classification:
             **kwargs,
         }
         predict_headers = {
-            "Authorization": f"Bearer {self._client.api_key}",
+            "X-API-Key": self._client.api_key,
         }
 
         @self._backoff_on_429
@@ -398,7 +398,7 @@ class Classification:
             form_data.add_field("frames_per_second", str(frames_per_second))
 
         headers = {
-            "Authorization": f"Bearer {self._client.api_key}",
+            "X-API-Key": self._client.api_key,
         }
 
         @self._backoff_on_429
