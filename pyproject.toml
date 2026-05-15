@@ -5,9 +5,40 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dragoneye-python"
 version = "1.0.0"
+description = "Official Python SDK for the Dragoneye computer vision API"
+readme = "README.md"
 requires-python = ">=3.8"
-dynamic = ["dependencies"]
 license = "MIT"
+authors = [{ name = "Dragoneye", email = "support@dragoneye.ai" }]
+keywords = [
+    "dragoneye",
+    "computer-vision",
+    "image-classification",
+    "video-classification",
+    "machine-learning",
+    "ai",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dynamic = ["dependencies"]
+
+[project.urls]
+Homepage = "https://dragoneye.ai"
+Documentation = "https://docs.dragoneye.ai/integrating/python-sdk"
+Repository = "https://github.com/dragoneyeAI/dragoneye-python"
+Playground = "https://playground.dragoneye.ai/"
+Issues = "https://github.com/dragoneyeAI/dragoneye-python/issues"
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
