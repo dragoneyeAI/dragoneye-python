@@ -283,6 +283,7 @@ class Classification:
             mime_type=media.mime_type,
             frames_per_second=frames_per_second,
             file_name=media.name,
+            **kwargs,
         )
 
         await self._upload_media_to_prediction_task(
@@ -384,6 +385,7 @@ class Classification:
         mime_type: str,
         frames_per_second: Optional[int],
         file_name: Optional[str],
+        **kwargs: Any,
     ) -> _PredictionTaskBeginResponse:
         url = f"{self._client.base_api_url}/prediction-task/begin"
 
@@ -395,6 +397,9 @@ class Classification:
 
         if frames_per_second is not None:
             form_data.add_field("frames_per_second", str(frames_per_second))
+
+        for key, value in kwargs.items():
+            form_data.add_field(key, str(value))
 
         headers = {
             "X-API-Key": self._client.api_key,
