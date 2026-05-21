@@ -21,7 +21,6 @@ from .parquet_deserializer import (
     deserialize_video_predictions,
 )
 from .types.common import (
-    BASE_API_URL,
     PredictionTaskState,
     PredictionTaskUUID,
     PredictionType,
@@ -136,7 +135,7 @@ class Classification:
         Given a prediction task UUID, return
         """
         query = urlencode({"predictionTaskUuid": prediction_task_uuid})
-        url = f"{BASE_API_URL}/prediction-task/status?{query}"
+        url = f"{self._client.base_api_url}/prediction-task/status?{query}"
         headers = {"X-API-Key": self._client.api_key}
 
         @self._backoff_on_429
@@ -200,7 +199,7 @@ class Classification:
                 "response_version": "parquet",
             }
         )
-        url = f"{BASE_API_URL}/prediction-task/results?{query}"
+        url = f"{self._client.base_api_url}/prediction-task/results?{query}"
         headers = {"X-API-Key": self._client.api_key}
 
         @self._backoff_on_429
@@ -290,7 +289,7 @@ class Classification:
             media, prediction_task_begin_response.signed_urls[0]
         )
 
-        predict_url = f"{BASE_API_URL}/predict"
+        predict_url = f"{self._client.base_api_url}/predict"
         predict_data: dict[str, Any] = {
             "model_name": model_name,
             "prediction_task_uuid": prediction_task_begin_response.prediction_task_uuid,
@@ -386,7 +385,7 @@ class Classification:
         frames_per_second: Optional[int],
         file_name: Optional[str],
     ) -> _PredictionTaskBeginResponse:
-        url = f"{BASE_API_URL}/prediction-task/begin"
+        url = f"{self._client.base_api_url}/prediction-task/begin"
 
         form_data = aiohttp.FormData()
         form_data.add_field("mimetype", mime_type)
