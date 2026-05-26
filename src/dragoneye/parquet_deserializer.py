@@ -1,27 +1,41 @@
 """Convert a zstd-compressed parquet prediction blob into typed SDK models.
 
-Matches the server-side schema produced by the dragoneye pipeline:
+This implements the **object-forward** schema: the server returns one parquet
+row per tracked object (a ``DetectedObject``). Everything about that object —
+its presence ranges, every bbox observation over time, its categories, and each
+category's attribute time-runs — is nested inside that single row. Images are
+encoded the same way as video, just with all timestamps equal to ``0``.
 
-    image_id:             String
-    normalized_bbox:      Array(Float64, 4)
-    bbox_score:           Float64
-    predictions:          List(Struct{
+    object_id:            Int64
+    timestamp_ranges:     List(Struct{
+                              timestamp_start_us_inclusive: Int64,
+                              timestamp_end_us_inclusive:   Int64,
+                          })
+    bbox_observations:    List(Struct{
+                              timestamp_microseconds: Int64,
+                              normalized_bbox:        Array(Float32, 4),
+                              bbox_score:             Float32,
+                          })
+    categories:           List(Struct{
                               category_id: Int64,
                               name:        String,
-                              score:       Float64,
+                              score:       Float32,
                               attributes:  List(Struct{
-                                  attribute_id: Int64,
-                                  name:         String,
-                                  options:      List(Struct{
-                                      option_id: Int64,
-                                      name:      String,
-                                      score:     Float64,
+                                  attribute_id:     Int64,
+                                  attribute_name:   String,
+                                  option_id:        Int64,
+                                  option_name:      String,
+                                  timestamp_ranges: List(Struct{
+                                      timestamp_start_us_inclusive: Int64,
+                                      timestamp_end_us_inclusive:   Int64,
+                                      score:                        Float32,
                                   }),
                               }),
                           })
 
-For video parquet blobs the extra column ``timestamp_microseconds: Int64`` is
-present.
+There is no client-side grouping or flattening — the nesting already exists in
+the parquet schema, so deserialization is a straight structural map from
+parquet row to typed object.
 """
 
 import io
@@ -30,107 +44,86 @@ from typing import Any, Dict, List
 import polars as pl
 
 from .models import (
-    ClassificationAttributeOption,
-    ClassificationAttributeResponse,
-    ClassificationCategory,
-    ClassificationCategoryPrediction,
-    ClassificationObjectPrediction,
-    ClassificationVideoObjectPrediction,
+    AttributePrediction,
+    BboxObservation,
+    CategoryPrediction,
+    DetectedObject,
+    ScoredTimestampRange,
+    TimestampRange,
 )
 from .types.common import NormalizedBbox
 
 
-def _predictions_to_models(
-    raw_predictions: List[Dict[str, Any]],
-) -> List[ClassificationCategoryPrediction]:
-    return [
-        ClassificationCategoryPrediction(
-            category=ClassificationCategory(
-                id=pred["category_id"],
-                name=pred["name"],
-                score=pred["score"],
-            ),
-            attributes=[
-                ClassificationAttributeResponse(
-                    attribute_id=attr["attribute_id"],
-                    name=attr["name"],
-                    options=[
-                        ClassificationAttributeOption(
-                            option_id=opt["option_id"],
-                            name=opt["name"],
-                            score=opt["score"],
-                        )
-                        for opt in attr["options"]
-                    ],
-                )
-                for attr in pred["attributes"]
-            ],
-        )
-        for pred in raw_predictions
-    ]
+def _to_timestamp_range(value: Dict[str, Any]) -> TimestampRange:
+    return TimestampRange(
+        timestamp_start_us_inclusive=value["timestamp_start_us_inclusive"],
+        timestamp_end_us_inclusive=value["timestamp_end_us_inclusive"],
+    )
 
 
-def _read_dataframe(parquet_bytes: bytes, columns: List[str]) -> pl.DataFrame:
-    return pl.read_parquet(io.BytesIO(parquet_bytes), columns=columns)
+def _to_scored_timestamp_range(value: Dict[str, Any]) -> ScoredTimestampRange:
+    return ScoredTimestampRange(
+        timestamp_start_us_inclusive=value["timestamp_start_us_inclusive"],
+        timestamp_end_us_inclusive=value["timestamp_end_us_inclusive"],
+        score=value["score"],
+    )
 
 
-def deserialize_image_predictions(
-    parquet_bytes: bytes,
-) -> List[ClassificationObjectPrediction]:
-    df = _read_dataframe(
-        parquet_bytes, columns=["normalized_bbox", "predictions"]
-    ).filter(pl.col("normalized_bbox").is_not_null())
-    return [
-        ClassificationObjectPrediction(
-            normalizedBbox=NormalizedBbox(tuple(row["normalized_bbox"])),
-            predictions=_predictions_to_models(row["predictions"] or []),
-        )
-        for row in df.select("normalized_bbox", "predictions").iter_rows(named=True)
-    ]
+def _to_bbox_observation(value: Dict[str, Any]) -> BboxObservation:
+    return BboxObservation(
+        timestamp_microseconds=value["timestamp_microseconds"],
+        normalized_bbox=NormalizedBbox(tuple(value["normalized_bbox"])),
+        bbox_score=value["bbox_score"],
+    )
 
 
-def deserialize_video_predictions(
-    parquet_bytes: bytes,
-) -> Dict[int, List[ClassificationVideoObjectPrediction]]:
-    df = _read_dataframe(
-        parquet_bytes,
-        columns=[
-            "image_id",
-            "normalized_bbox",
-            "predictions",
-            "timestamp_microseconds",
+def _to_attribute_prediction(value: Dict[str, Any]) -> AttributePrediction:
+    return AttributePrediction(
+        attribute_id=value["attribute_id"],
+        attribute_name=value["attribute_name"],
+        option_id=value["option_id"],
+        option_name=value["option_name"],
+        timestamp_ranges=[
+            _to_scored_timestamp_range(tr)
+            for tr in (value["timestamp_ranges"] or [])
         ],
     )
 
-    # Frames with detections contribute rows; frames without still appear with a
-    # null bbox so the caller can distinguish "no detections" from "frame not
-    # processed".
-    real_df = df.filter(pl.col("normalized_bbox").is_not_null())
 
-    result: Dict[int, List[ClassificationVideoObjectPrediction]] = {
-        int(ts): [
-            ClassificationVideoObjectPrediction(
-                normalizedBbox=NormalizedBbox(tuple(row["normalized_bbox"])),
-                predictions=_predictions_to_models(row["predictions"] or []),
-                frame_id=row["image_id"],
-                timestamp_microseconds=int(ts),
-            )
-            for row in group.select(
-                "normalized_bbox", "predictions", "image_id"
-            ).iter_rows(named=True)
-        ]
-        for (ts,), group in real_df.group_by(
-            "timestamp_microseconds",
-        )
-    }
+def _to_category_prediction(value: Dict[str, Any]) -> CategoryPrediction:
+    return CategoryPrediction(
+        category_id=value["category_id"],
+        name=value["name"],
+        score=value["score"],
+        attributes=[
+            _to_attribute_prediction(attr) for attr in (value["attributes"] or [])
+        ],
+    )
 
-    # Include no-detection frames with empty prediction lists.
-    if len(df):
-        for row in df.select("timestamp_microseconds").unique().iter_rows(named=True):
-            ts_raw = row["timestamp_microseconds"]
-            if ts_raw is None:
-                continue
-            ts = int(ts_raw)
-            result.setdefault(ts, [])
 
-    return result
+def _to_detected_object(row: Dict[str, Any]) -> DetectedObject:
+    return DetectedObject(
+        object_id=row["object_id"],
+        timestamp_ranges=[
+            _to_timestamp_range(tr) for tr in (row["timestamp_ranges"] or [])
+        ],
+        bbox_observations=[
+            _to_bbox_observation(obs) for obs in (row["bbox_observations"] or [])
+        ],
+        categories=[
+            _to_category_prediction(cat) for cat in (row["categories"] or [])
+        ],
+    )
+
+
+def deserialize_object_forward_predictions(
+    parquet_bytes: bytes,
+) -> List[DetectedObject]:
+    """Map an object-forward parquet blob to a list of ``DetectedObject``.
+
+    One parquet row yields one ``DetectedObject``. Used for both image and
+    video responses — images simply carry a single bbox observation at
+    ``timestamp_microseconds == 0`` with a zero-width timestamp range.
+    """
+    df = pl.read_parquet(io.BytesIO(parquet_bytes))
+    return [_to_detected_object(row) for row in df.iter_rows(named=True)]

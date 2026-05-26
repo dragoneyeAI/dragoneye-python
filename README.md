@@ -60,13 +60,15 @@ async def main():
     )
 
     # Accessing image results
-    for obj in image_result.object_predictions:
-        bbox = obj.normalizedBbox
-        for pred in obj.predictions:
-            print(f"Category: {pred.category.name} ({pred.category.score:.2f})")
-            for attr in pred.attributes:
-                top_option = max(attr.options, key=lambda o: o.score)
-                print(f"  {attr.name}: {top_option.name} ({top_option.score:.2f})")
+    for obj in image_result.objects:
+        # Each detected object is tracked; an image has a single bbox observation.
+        bbox = obj.bbox_observations[0].normalized_bbox
+        top_category = max(obj.categories, key=lambda c: c.score)
+        print(f"Category: {top_category.name} ({top_category.score:.2f})")
+        for attr in top_category.attributes:
+            # An image has a single (zero-width) scored timestamp range per attribute.
+            score = attr.timestamp_ranges[0].score
+            print(f"  {attr.attribute_name}: {attr.option_name} ({score:.2f})")
 
 asyncio.run(main())
 ```
@@ -75,85 +77,76 @@ asyncio.run(main())
 
 ### Example Video Response
 
-Below is an example of what a `ClassificationPredictVideoResponse` looks like for a Building Detection model. The response maps each sampled frame's timestamp (in microseconds) to the objects detected in that frame:
+Below is an example of what a `ClassificationPredictVideoResponse` looks like for a Building Detection model. The response is a flat list of `objects`, where each `DetectedObject` is a single entity tracked across the whole video:
 
 ```python
 ClassificationPredictVideoResponse(
     prediction_task_uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     original_file_name="any-file-name",
     frames_per_second=1,
-    timestamp_us_to_predictions={
-        0: [
-            ClassificationVideoObjectPrediction(
-                frame_id="frame_0",
-                timestamp_microseconds=0,
-                normalizedBbox=(0.12, 0.25, 0.55, 0.78),
-                predictions=[
-                    ClassificationCategoryPrediction(
-                        category=ClassificationCategory(
-                            id=2084323334,
-                            name="House (detached)",
-                            score=0.92,
+    objects=[
+        DetectedObject(
+            object_id=1,
+            timestamp_ranges=[TimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000)],
+            # One bbox sighting per sampled frame the object appears in.
+            bbox_observations=[
+                BboxObservation(timestamp_microseconds=0, normalized_bbox=(0.12, 0.25, 0.55, 0.78), bbox_score=0.97),
+                BboxObservation(timestamp_microseconds=1000000, normalized_bbox=(0.13, 0.26, 0.56, 0.79), bbox_score=0.96),
+                BboxObservation(timestamp_microseconds=2000000, normalized_bbox=(0.14, 0.27, 0.57, 0.80), bbox_score=0.95),
+            ],
+            categories=[
+                CategoryPrediction(
+                    category_id=2084323334,
+                    name="House (detached)",
+                    score=0.92,
+                    # Each attribute is a chosen option with the scored timestamp ranges over which it held.
+                    attributes=[
+                        AttributePrediction(
+                            attribute_id=1371766615,
+                            attribute_name="Building Exterior Color",
+                            option_id=3498033303,
+                            option_name="White / Off-white",
+                            timestamp_ranges=[
+                                ScoredTimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000, score=0.85),
+                            ],
                         ),
-                        attributes=[
-                            ClassificationAttributeResponse(
-                                attribute_id=1371766615,
-                                name="Building Exterior Color",
-                                options=[
-                                    ClassificationAttributeOption(option_id=3498033303, name="White / Off-white", score=0.85),
-                                    ClassificationAttributeOption(option_id=496739380, name="Light gray", score=0.10),
-                                    # ... remaining options omitted for brevity
-                                ],
-                            ),
-                            ClassificationAttributeResponse(
-                                attribute_id=448392115,
-                                name="Building Exterior Material",
-                                options=[
-                                    ClassificationAttributeOption(option_id=3887467550, name="Wood (incl. timber siding)", score=0.78),
-                                    ClassificationAttributeOption(option_id=562768697, name="Brick", score=0.12),
-                                    # ...
-                                ],
-                            ),
-                            ClassificationAttributeResponse(
-                                attribute_id=4240554102,
-                                name="Building Size (Stories)",
-                                options=[
-                                    ClassificationAttributeOption(option_id=3067238669, name="2 stories", score=0.91),
-                                    ClassificationAttributeOption(option_id=2398426374, name="1 story", score=0.06),
-                                    # ...
-                                ],
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            ClassificationVideoObjectPrediction(
-                frame_id="frame_0",
-                timestamp_microseconds=0,
-                normalizedBbox=(0.60, 0.30, 0.88, 0.75),
-                predictions=[
-                    ClassificationCategoryPrediction(
-                        category=ClassificationCategory(
-                            id=3212613421,
-                            name="Garage (detached)",
-                            score=0.87,
+                        AttributePrediction(
+                            attribute_id=448392115,
+                            attribute_name="Building Exterior Material",
+                            option_id=3887467550,
+                            option_name="Wood (incl. timber siding)",
+                            timestamp_ranges=[
+                                ScoredTimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000, score=0.78),
+                            ],
                         ),
-                        attributes=[
-                            # ... attributes omitted for brevity
-                        ],
-                    ),
-                ],
-            ),
-        ],
-        1000000: [
-            # Objects detected at t=1s (1,000,000 microseconds)
-            # ...
-        ],
-    },
+                        # ... more attributes omitted for brevity
+                    ],
+                ),
+            ],
+        ),
+        DetectedObject(
+            object_id=2,
+            timestamp_ranges=[TimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=1000000)],
+            bbox_observations=[
+                BboxObservation(timestamp_microseconds=0, normalized_bbox=(0.60, 0.30, 0.88, 0.75), bbox_score=0.90),
+                BboxObservation(timestamp_microseconds=1000000, normalized_bbox=(0.61, 0.31, 0.89, 0.76), bbox_score=0.89),
+            ],
+            categories=[
+                CategoryPrediction(
+                    category_id=3212613421,
+                    name="Garage (detached)",
+                    score=0.87,
+                    attributes=[
+                        # ... attributes omitted for brevity
+                    ],
+                ),
+            ],
+        ),
+    ],
 )
 ```
 
-Each timestamp key (e.g., `0`, `1000000`) corresponds to a sampled frame. Within each frame, every detected object has its own bounding box, category prediction with a confidence score, and attribute predictions with scored options.
+Each `DetectedObject` carries a stable `object_id` and the `timestamp_ranges` over which it was visible. Its `bbox_observations` record where the object was at each sampled timestamp (in microseconds). Attributes are organized per chosen option: each `AttributePrediction` carries the scored `timestamp_ranges` over which its option held, so the same `attribute_id` may appear more than once with different options if the chosen option changes during the object's lifetime. Image responses use the identical shape, with a single bbox observation at `timestamp_microseconds=0` and zero-width timestamp ranges.
 
 ---
 
@@ -223,81 +216,92 @@ media = Video.from_stream(
 
 ### Types
 
-The response types form a nested hierarchy. Here's how they fit together for image predictions:
+The response types form a nested hierarchy. Image and video responses share the same `DetectedObject` shape:
 
 ```
-ClassificationPredictImageResponse
-└── object_predictions: [ClassificationObjectPrediction]
-    ├── normalizedBbox: (x1, y1, x2, y2)
-    └── predictions: [ClassificationCategoryPrediction]
-        ├── category: ClassificationCategory (id, name, score)
-        └── attributes: [ClassificationAttributeResponse]
-            └── options: [ClassificationAttributeOption] (option_id, name, score)
+ClassificationPredictImageResponse / ClassificationPredictVideoResponse
+└── objects: [DetectedObject]
+    ├── object_id: int
+    ├── timestamp_ranges: [TimestampRange] (timestamp_start_us_inclusive, timestamp_end_us_inclusive)
+    ├── bbox_observations: [BboxObservation]
+    │   ├── timestamp_microseconds: int
+    │   ├── normalized_bbox: (x1, y1, x2, y2)
+    │   └── bbox_score: float
+    └── categories: [CategoryPrediction]
+        ├── category_id, name, score
+        └── attributes: [AttributePrediction]
+            ├── attribute_id, attribute_name
+            ├── option_id, option_name
+            └── timestamp_ranges: [ScoredTimestampRange] (timestamp_start_us_inclusive, timestamp_end_us_inclusive, score)
 ```
 
-For video predictions, `ClassificationPredictVideoResponse` maps timestamps to lists of `ClassificationVideoObjectPrediction` (which extends `ClassificationObjectPrediction` with `frame_id` and `timestamp_microseconds`).
+For images, every timestamp range is zero-width and each object has a single `BboxObservation` at `timestamp_microseconds=0`. For videos, an object accumulates one `BboxObservation` per sampled frame it appears in.
 
 ---
 
-**`ClassificationCategory`**
-Represents a predicted category.
+**`TimestampRange`**
+A contiguous span in microseconds, inclusive on both ends. For images, `timestamp_start_us_inclusive == timestamp_end_us_inclusive == 0`.
 
 Attributes:
 
-- `id` (int): Unique identifier for the category.
-- `name` (str): The name of the category.
-- `score` (float): Confidence score for the prediction.
+- `timestamp_start_us_inclusive` (int): Start of the span in microseconds.
+- `timestamp_end_us_inclusive` (int): End of the span in microseconds.
 
-**`ClassificationAttributeOption`**
-Represents a single option within an attribute prediction.
+**`ScoredTimestampRange`**
+A `TimestampRange` that also carries the confidence the chosen option held over it. `score` is the mean of the option's raw per-frame scores over the range.
 
 Attributes:
 
-- `option_id` (int): Unique identifier for the option.
-- `name` (str): The name of the option.
-- `score` (float): Confidence score for this option.
+- `timestamp_start_us_inclusive` (int): Start of the span in microseconds.
+- `timestamp_end_us_inclusive` (int): End of the span in microseconds.
+- `score` (float): Confidence score for the option over this span.
 
-**`ClassificationAttributeResponse`**
-Represents a predicted attribute with its possible options.
+**`BboxObservation`**
+A single bounding-box sighting of a tracked object at one timestamp.
+
+Attributes:
+
+- `timestamp_microseconds` (int): Timestamp of the sighting in microseconds (`0` for images).
+- `normalized_bbox` (NormalizedBbox): The bounding box at this timestamp (normalized coordinates).
+- `bbox_score` (float): Confidence score for the bounding box.
+
+**`AttributePrediction`**
+A chosen attribute option together with the scored timestamp ranges over which it held. The same `attribute_id` may appear more than once across an object's life with different options.
 
 Attributes:
 
 - `attribute_id` (int): Unique identifier for the attribute.
-- `name` (str): The name of the attribute.
-- `options` (List[ClassificationAttributeOption]): The predicted options for this attribute.
+- `attribute_name` (str): The name of the attribute.
+- `option_id` (int): Unique identifier for the chosen option.
+- `option_name` (str): The name of the chosen option.
+- `timestamp_ranges` (List[ScoredTimestampRange]): The scored spans over which this option was chosen.
 
-**`ClassificationCategoryPrediction`**
-Represents a category prediction along with its associated attribute predictions.
-
-Attributes:
-
-- `category` (ClassificationCategory): The predicted category.
-- `attributes` (List[ClassificationAttributeResponse]): Attribute predictions for this category.
-
-**`ClassificationObjectPrediction`**
-Represents the prediction of a detected object in an image.
+**`CategoryPrediction`**
+A predicted category and its attribute predictions.
 
 Attributes:
 
-- `normalizedBbox` (NormalizedBbox): A bounding box for the detected object (coordinates are normalized).
-- `predictions` (List[ClassificationCategoryPrediction]): Category and attribute predictions for this object.
+- `category_id` (int): Unique identifier for the category.
+- `name` (str): The name of the category.
+- `score` (float): Confidence score for the category.
+- `attributes` (List[AttributePrediction]): Attribute predictions for this category.
 
-**`ClassificationVideoObjectPrediction`**
-Extends `ClassificationObjectPrediction` with video-specific fields.
+**`DetectedObject`**
+A single entity tracked across the media: its lifespan, every bounding-box observation, and its categories.
 
 Attributes:
 
-- `normalizedBbox` (NormalizedBbox): A bounding box for the detected object.
-- `predictions` (List[ClassificationCategoryPrediction]): Category and attribute predictions.
-- `frame_id` (str): Identifier for the frame.
-- `timestamp_microseconds` (int): Timestamp of the frame in microseconds.
+- `object_id` (int): Stable identifier for the tracked object.
+- `timestamp_ranges` (List[TimestampRange]): The spans over which the object was visible.
+- `bbox_observations` (List[BboxObservation]): Bounding-box sightings over time.
+- `categories` (List[CategoryPrediction]): Category and attribute predictions for this object.
 
 **`ClassificationPredictImageResponse`**
 The response object returned after predicting an image.
 
 Attributes:
 
-- `object_predictions` (List[ClassificationObjectPrediction]): Detected objects and their predictions.
+- `objects` (List[DetectedObject]): Detected objects and their predictions.
 - `prediction_task_uuid` (str): The unique identifier for the prediction task.
 - `original_file_name` (Optional[str]): The file name of the original media, if provided.
 
@@ -306,7 +310,7 @@ The response object returned after predicting a video.
 
 Attributes:
 
-- `timestamp_us_to_predictions` (Dict[int, List[ClassificationVideoObjectPrediction]]): A mapping from timestamp (in microseconds) to object predictions for that frame.
+- `objects` (List[DetectedObject]): Tracked objects and their predictions across the video.
 - `frames_per_second` (int): The number of frames per second that were sampled.
 - `prediction_task_uuid` (str): The unique identifier for the prediction task.
 - `original_file_name` (Optional[str]): The file name of the original media, if provided.
