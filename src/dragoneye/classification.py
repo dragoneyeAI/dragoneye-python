@@ -16,7 +16,10 @@ from .models import (
     ClassificationPredictVideoResponse,
     PredictionTaskStatusResponse,
 )
-from .parquet_deserializer import deserialize_object_forward_predictions
+from .parquet_deserializer import (
+    deserialize_object_forward_image_predictions,
+    deserialize_object_forward_video_predictions,
+)
 from .types.common import (
     PredictionTaskState,
     PredictionTaskUUID,
@@ -223,11 +226,10 @@ class Classification:
             )
 
         original_file_name = response_headers.get("X-Original-File-Name")
-        objects = deserialize_object_forward_predictions(parquet_bytes)
 
         if prediction_type == "image":
             return ClassificationPredictImageResponse(
-                objects=objects,
+                objects=deserialize_object_forward_image_predictions(parquet_bytes),
                 prediction_task_uuid=prediction_task_uuid,
                 original_file_name=original_file_name,
             )
@@ -238,7 +240,7 @@ class Classification:
                     "Missing X-Frames-Per-Second header on video prediction response"
                 )
             return ClassificationPredictVideoResponse(
-                objects=objects,
+                objects=deserialize_object_forward_video_predictions(parquet_bytes),
                 frames_per_second=int(frames_per_second_header),
                 prediction_task_uuid=prediction_task_uuid,
                 original_file_name=original_file_name,
