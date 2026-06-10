@@ -84,7 +84,7 @@ ClassificationPredictImageResponse(
     objects=[
         ImageDetectedObject(
             object_id=1,
-            bbox_observation=ImageBboxObservation(normalized_bbox=(0.12, 0.25, 0.55, 0.78), bbox_score=0.97),
+            bbox_observation=BboxObservation(normalized_bbox=(0.12, 0.25, 0.55, 0.78), bbox_score=0.97),
             categories=[
                 ImageCategoryPrediction(
                     category_id=2084323334,
@@ -112,7 +112,7 @@ ClassificationPredictImageResponse(
         ),
         ImageDetectedObject(
             object_id=2,
-            bbox_observation=ImageBboxObservation(normalized_bbox=(0.60, 0.30, 0.88, 0.75), bbox_score=0.90),
+            bbox_observation=BboxObservation(normalized_bbox=(0.60, 0.30, 0.88, 0.75), bbox_score=0.90),
             categories=[
                 ImageCategoryPrediction(
                     category_id=3212613421,
@@ -145,9 +145,9 @@ ClassificationPredictVideoResponse(
             timestamp_ranges=[TimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000)],
             # One bbox sighting per sampled frame the object appears in.
             bbox_observations=[
-                VideoBboxObservation(timestamp_microseconds=0, normalized_bbox=(0.12, 0.25, 0.55, 0.78), bbox_score=0.97),
-                VideoBboxObservation(timestamp_microseconds=1000000, normalized_bbox=(0.13, 0.26, 0.56, 0.79), bbox_score=0.96),
-                VideoBboxObservation(timestamp_microseconds=2000000, normalized_bbox=(0.14, 0.27, 0.57, 0.80), bbox_score=0.95),
+                VideoBboxObservation(timestamp_microseconds=0, observation=BboxObservation(normalized_bbox=(0.12, 0.25, 0.55, 0.78), bbox_score=0.97)),
+                VideoBboxObservation(timestamp_microseconds=1000000, observation=BboxObservation(normalized_bbox=(0.13, 0.26, 0.56, 0.79), bbox_score=0.96)),
+                VideoBboxObservation(timestamp_microseconds=2000000, observation=BboxObservation(normalized_bbox=(0.14, 0.27, 0.57, 0.80), bbox_score=0.95)),
             ],
             categories=[
                 VideoCategoryPrediction(
@@ -183,8 +183,8 @@ ClassificationPredictVideoResponse(
             object_id=2,
             timestamp_ranges=[TimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=1000000)],
             bbox_observations=[
-                VideoBboxObservation(timestamp_microseconds=0, normalized_bbox=(0.60, 0.30, 0.88, 0.75), bbox_score=0.90),
-                VideoBboxObservation(timestamp_microseconds=1000000, normalized_bbox=(0.61, 0.31, 0.89, 0.76), bbox_score=0.89),
+                VideoBboxObservation(timestamp_microseconds=0, observation=BboxObservation(normalized_bbox=(0.60, 0.30, 0.88, 0.75), bbox_score=0.90)),
+                VideoBboxObservation(timestamp_microseconds=1000000, observation=BboxObservation(normalized_bbox=(0.61, 0.31, 0.89, 0.76), bbox_score=0.89)),
             ],
             categories=[
                 VideoCategoryPrediction(
@@ -279,7 +279,7 @@ Image responses use the simpler, timestamp-free shape:
 ClassificationPredictImageResponse
 └── objects: [ImageDetectedObject]
     ├── object_id: int
-    ├── bbox_observation: ImageBboxObservation
+    ├── bbox_observation: BboxObservation
     │   ├── normalized_bbox: (x1, y1, x2, y2)
     │   └── bbox_score: float
     └── categories: [ImageCategoryPrediction]
@@ -299,8 +299,9 @@ ClassificationPredictVideoResponse
     ├── timestamp_ranges: [TimestampRange] (timestamp_start_us_inclusive, timestamp_end_us_inclusive)
     ├── bbox_observations: [VideoBboxObservation]
     │   ├── timestamp_microseconds: int
-    │   ├── normalized_bbox: (x1, y1, x2, y2)
-    │   └── bbox_score: float
+    │   └── observation: BboxObservation | None  # None on gap frames
+    │       ├── normalized_bbox: (x1, y1, x2, y2)
+    │       └── bbox_score: float
     └── categories: [VideoCategoryPrediction]
         ├── category_id, name, score
         └── attributes: [VideoAttributePrediction]
@@ -309,7 +310,7 @@ ClassificationPredictVideoResponse
             └── timestamp_ranges: [ScoredTimestampRange] (timestamp_start_us_inclusive, timestamp_end_us_inclusive, score)
 ```
 
-An image object has exactly one `ImageBboxObservation` and one `score` per attribute. A video object accumulates one `VideoBboxObservation` per sampled frame it appears in, and each attribute carries the scored timestamp ranges over which its option held.
+An image object has exactly one `BboxObservation` and one `score` per attribute. A video object accumulates one `VideoBboxObservation` per processed frame within its lifespan, and each attribute carries the scored timestamp ranges over which its option held. Frames where the object was present but not detected ("predicted-but-undetected" gap frames) are still included, with `observation` set to `None` — skip these when drawing.
 
 ---
 
@@ -330,15 +331,17 @@ Properties:
 - `timestamp_end_us_inclusive` (int): End of the span in microseconds.
 - `score` (float): Confidence score for the option over this span.
 
-#### Image types
+#### Shared types
 
-**`ImageBboxObservation`**
-The bounding box of a detected object in an image.
+**`BboxObservation`**
+A bounding box and the confidence of the detection that produced it. Shared by image and video responses. Both fields are always present — a `BboxObservation` only ever exists where a box was actually placed (absence is represented by a `None` `observation` on `VideoBboxObservation`).
 
 Properties:
 
 - `normalized_bbox` (NormalizedBbox): The bounding box (normalized coordinates).
 - `bbox_score` (float): Confidence score for the bounding box.
+
+#### Image types
 
 **`ImageAttributePrediction`**
 A chosen attribute option for an object in an image, with its confidence score.
@@ -367,19 +370,18 @@ A single detected object in an image: its bounding box and its categories.
 Properties:
 
 - `object_id` (int): Identifier for the detected object.
-- `bbox_observation` (ImageBboxObservation): The object's bounding box.
+- `bbox_observation` (BboxObservation): The object's bounding box.
 - `categories` (List[ImageCategoryPrediction]): Category and attribute predictions for this object.
 
 #### Video types
 
 **`VideoBboxObservation`**
-A single bounding-box sighting of a tracked object at one timestamp.
+A single sighting of a tracked object at one timestamp. Observations span every processed frame within the track's lifespan; a detected frame carries a real `BboxObservation`, while a "predicted-but-undetected" gap frame carries `observation=None`.
 
 Properties:
 
 - `timestamp_microseconds` (int): Timestamp of the sighting in microseconds.
-- `normalized_bbox` (NormalizedBbox): The bounding box at this timestamp (normalized coordinates).
-- `bbox_score` (float): Confidence score for the bounding box.
+- `observation` (Optional[BboxObservation]): The bounding box and its score at this timestamp, or `None` on a gap frame where the object was present but not detected.
 
 **`VideoAttributePrediction`**
 A chosen attribute option together with the scored timestamp ranges over which it held. The same `attribute_id` may appear more than once across an object's life with different options.
@@ -409,7 +411,7 @@ Properties:
 
 - `object_id` (int): Stable identifier for the tracked object.
 - `timestamp_ranges` (List[TimestampRange]): The spans over which the object was visible.
-- `bbox_observations` (List[VideoBboxObservation]): Bounding-box sightings over time.
+- `bbox_observations` (List[VideoBboxObservation]): Bounding-box sightings over time, one per processed frame in the object's lifespan; gap frames carry a null bbox.
 - `categories` (List[VideoCategoryPrediction]): Category and attribute predictions for this object.
 
 #### Response types
