@@ -61,7 +61,6 @@ async def main():
 
     # Accessing image results
     for obj in image_result.objects:
-        # Each image object has a single bounding box and per-attribute scores.
         bbox = obj.bbox_observation.normalized_bbox
         top_category = max(obj.categories, key=lambda c: c.score)
         print(f"Category: {top_category.name} ({top_category.score:.2f})")
@@ -73,9 +72,19 @@ asyncio.run(main())
 
 > **Note — Model names**: Model names follow the format `recognize_anything/model_name`. Use the name you specified when creating the model.
 
+## How predictions are structured
+
+Both endpoints return a list of **objects** the model detected. Each object has:
+
+- A **bounding box** — where the object is, in normalized `(x1, y1, x2, y2)` coordinates.
+- One or more **categories** — what the object is, each with a confidence `score`.
+- A list of **attributes** on each category — additional properties the model predicted (for example, a building's exterior color), each as the chosen option plus a score.
+
+Images and videos return slightly different object shapes. An **image** is a single moment, so each object has one bounding box and one score per attribute. A **video** adds a time dimension: the same object is tracked across frames, so it carries the timestamps where it appeared, a bounding box per sampled frame, and attribute scores that can change over time.
+
 ### Example Image Response
 
-Below is an example of what a `ClassificationPredictImageResponse` looks like for a Building Detection model. The response is a flat list of `objects`, where each `ImageDetectedObject` is a single detected entity with one bounding box and per-attribute scores:
+Below is an example of what a `ClassificationPredictImageResponse` looks like for a Building Detection model. The response is a flat list of `objects`, where each `ImageDetectedObject` is a single detected object with one bounding box and a score per attribute:
 
 ```python
 ClassificationPredictImageResponse(
@@ -128,33 +137,43 @@ ClassificationPredictImageResponse(
 )
 ```
 
-Each `ImageDetectedObject` carries an `object_id`, a single `bbox_observation`, and its `categories`. Every attribute is a chosen option with a single `score` — images have no time dimension.
+Each `ImageDetectedObject` has an `object_id`, a single `bbox_observation`, and its `categories`. The `bbox_observation` is a `BboxObservation` — the same bounding-box type videos use. Every attribute is one chosen option with a single `score`.
 
 ### Example Video Response
 
-Below is an example of what a `ClassificationPredictVideoResponse` looks like for the same model. The response is a flat list of `objects`, where each `VideoDetectedObject` is a single entity tracked across the whole video:
+Below is an example of what a `ClassificationPredictVideoResponse` looks like for the same model. The response is a flat list of `objects`, where each `VideoDetectedObject` is a single object tracked across the whole video:
 
 ```python
 ClassificationPredictVideoResponse(
     prediction_task_uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     original_file_name="any-file-name",
     frames_per_second=1,
+    # Every processed frame's timestamp (microseconds), sorted — including
+    # frames where nothing was detected.
+    frame_timestamps_microseconds=[0, 1000000, 2000000, 3000000],
     objects=[
         VideoDetectedObject(
             object_id=1,
-            timestamp_ranges=[TimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000)],
-            # One bbox sighting per sampled frame the object appears in.
+            # When this object was on screen (in microseconds).
+            timestamp_ranges=[TimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=3000000)],
+            # One observation per sampled frame in the object's lifespan.
             bbox_observations=[
                 VideoBboxObservation(timestamp_microseconds=0, observation=BboxObservation(normalized_bbox=(0.12, 0.25, 0.55, 0.78), bbox_score=0.97)),
                 VideoBboxObservation(timestamp_microseconds=1000000, observation=BboxObservation(normalized_bbox=(0.13, 0.26, 0.56, 0.79), bbox_score=0.96)),
-                VideoBboxObservation(timestamp_microseconds=2000000, observation=BboxObservation(normalized_bbox=(0.14, 0.27, 0.57, 0.80), bbox_score=0.95)),
+                # Gap frame: the object is still on screen, but the model
+                # didn't predict a box for it this frame, so the whole
+                # observation is None. Skip these when drawing or denormalizing.
+                VideoBboxObservation(timestamp_microseconds=2000000, observation=None),
+                VideoBboxObservation(timestamp_microseconds=3000000, observation=BboxObservation(normalized_bbox=(0.14, 0.27, 0.57, 0.80), bbox_score=0.95)),
             ],
             categories=[
                 VideoCategoryPrediction(
                     category_id=2084323334,
                     name="House (detached)",
                     score=0.92,
-                    # Each attribute is a chosen option with the scored timestamp ranges over which it held.
+                    # Each attribute is the option the model predicted
+                    # as well as the start and end times that the model
+                    # predicted it.
                     attributes=[
                         VideoAttributePrediction(
                             attribute_id=1371766615,
@@ -162,7 +181,7 @@ ClassificationPredictVideoResponse(
                             option_id=3498033303,
                             option_name="White / Off-white",
                             timestamp_ranges=[
-                                ScoredTimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000, score=0.85),
+                                ScoredTimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=3000000, score=0.85),
                             ],
                         ),
                         VideoAttributePrediction(
@@ -171,7 +190,7 @@ ClassificationPredictVideoResponse(
                             option_id=3887467550,
                             option_name="Wood (incl. timber siding)",
                             timestamp_ranges=[
-                                ScoredTimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=2000000, score=0.78),
+                                ScoredTimestampRange(timestamp_start_us_inclusive=0, timestamp_end_us_inclusive=3000000, score=0.78),
                             ],
                         ),
                         # ... more attributes omitted for brevity
@@ -201,7 +220,28 @@ ClassificationPredictVideoResponse(
 )
 ```
 
-Each `VideoDetectedObject` carries a stable `object_id` and the `timestamp_ranges` over which it was visible. Its `bbox_observations` record where the object was at each sampled timestamp (in microseconds). Attributes are organized per chosen option: each `VideoAttributePrediction` carries the scored `timestamp_ranges` over which its option held, so the same `attribute_id` may appear more than once with different options if the chosen option changes during the object's lifetime. The same model returns the simpler, timestamp-free `ImageDetectedObject` shape (shown above) when run on an image.
+Read a video response one object at a time. Each `VideoDetectedObject` is one object the model tracked through the video, and it tells you:
+
+- `object_id` — a stable id, so you can follow the same object from frame to frame.
+- `timestamp_ranges` — when the object was on screen, in microseconds.
+- `bbox_observations` — where the object was, with one observation per sampled frame in its lifespan.
+- `categories` — what the object is, plus its attribute predictions.
+
+The response also carries `frame_timestamps_microseconds`: the sorted list of **every** frame the model processed, in microseconds — including frames where nothing was detected. This is the full timeline of the video, broader than any single object's `timestamp_ranges` or `bbox_observations` (which only cover the frames where that object appeared). Use it to line a playback position up with a real frame: snap an arbitrary scrub time to the nearest value in this list, then look up detections at that timestamp. It's video-only — image responses don't have it.
+
+> **Note — Gap frames**: A tracked object can stay on screen across frames where the model didn't predict a box for it. These are **gap frames**: the object is still within its `timestamp_ranges`, but for that frame the model produced no detection. The SDK keeps one `VideoBboxObservation` per sampled frame in the lifespan and sets its `observation` to `None` on gap frames, so a track's observations stay aligned to the frames it spans. Any code that draws or denormalizes coordinates must **skip observations where `observation is None`**:
+>
+> ```python
+> for obs in obj.bbox_observations:
+>     if obs.observation is None:
+>         continue  # gap frame — object on screen but no predicted box
+>     x1, y1, x2, y2 = obs.observation.normalized_bbox
+>     # ... draw / denormalize
+> ```
+>
+> Gap frames only occur on the video path. Image objects always carry a real bounding box.
+
+Attributes work a little differently in video because the model's answer can change over time. Each `VideoAttributePrediction` is one chosen option together with the time spans where that option applied. If the answer changes partway through (say a traffic light goes from green to red), the same attribute appears again with the new option. Images don't have a time dimension, so they use the simpler `ImageDetectedObject` shape shown above.
 
 ---
 
@@ -271,7 +311,7 @@ media = Video.from_stream(
 
 ### Types
 
-The response types form a nested hierarchy. Image and video responses have different object shapes: images are timestamp-free, while videos carry the time dimension.
+The response types form a nested hierarchy. Images and videos use different object shapes: images are timestamp-free, while videos carry a time dimension.
 
 Image responses use the simpler, timestamp-free shape:
 
@@ -290,16 +330,17 @@ ClassificationPredictImageResponse
             └── score: float
 ```
 
-Video responses carry the time dimension:
+Video responses add timestamps and one bounding box per sampled frame:
 
 ```
 ClassificationPredictVideoResponse
+├── frame_timestamps_microseconds: [int]  # sorted; every processed frame, incl. zero-detection frames
 └── objects: [VideoDetectedObject]
     ├── object_id: int
     ├── timestamp_ranges: [TimestampRange] (timestamp_start_us_inclusive, timestamp_end_us_inclusive)
     ├── bbox_observations: [VideoBboxObservation]
     │   ├── timestamp_microseconds: int
-    │   └── observation: BboxObservation | None  # None on gap frames
+    │   └── observation: BboxObservation | None   # None on gap frames
     │       ├── normalized_bbox: (x1, y1, x2, y2)
     │       └── bbox_score: float
     └── categories: [VideoCategoryPrediction]
@@ -310,9 +351,11 @@ ClassificationPredictVideoResponse
             └── timestamp_ranges: [ScoredTimestampRange] (timestamp_start_us_inclusive, timestamp_end_us_inclusive, score)
 ```
 
-An image object has exactly one `BboxObservation` and one `score` per attribute. A video object accumulates one `VideoBboxObservation` per processed frame within its lifespan, and each attribute carries the scored timestamp ranges over which its option held. Frames where the object was present but not detected ("predicted-but-undetected" gap frames) are still included, with `observation` set to `None` — skip these when drawing.
+Both shapes use the same `BboxObservation` for a bounding box. An image object has exactly one `BboxObservation` and one `score` per attribute. A video object collects one `VideoBboxObservation` per sampled frame it appears in — each wrapping a `BboxObservation`, or `None` on a gap frame — and each attribute carries the scored timestamp ranges over which its option held.
 
 ---
+
+#### Shared types
 
 **`TimestampRange`**
 A contiguous span in microseconds, inclusive on both ends. Used by video responses to describe when an object was visible.
@@ -331,10 +374,11 @@ Properties:
 - `timestamp_end_us_inclusive` (int): End of the span in microseconds.
 - `score` (float): Confidence score for the option over this span.
 
-#### Shared types
+**`NormalizedBbox`**
+Type alias for normalized bounding boxes, represented as a tuple of four float values `(x1, y1, x2, y2)` in the range `[0, 1]`.
 
 **`BboxObservation`**
-A bounding box and the confidence of the detection that produced it. Shared by image and video responses. Both fields are always present — a `BboxObservation` only ever exists where a box was actually placed (absence is represented by a `None` `observation` on `VideoBboxObservation`).
+A bounding box and the confidence of the detection that produced it. Shared by image and video responses. Both fields are always present — a `BboxObservation` only exists where a box was actually placed (on video, a frame with no box is represented by a `None` `observation` on its `VideoBboxObservation`).
 
 Properties:
 
@@ -376,15 +420,15 @@ Properties:
 #### Video types
 
 **`VideoBboxObservation`**
-A single sighting of a tracked object at one timestamp. Observations span every processed frame within the track's lifespan; a detected frame carries a real `BboxObservation`, while a "predicted-but-undetected" gap frame carries `observation=None`.
+A single sighting of a tracked object at one sampled frame. The object's `bbox_observations` holds one of these per frame in its lifespan, including **gap frames** — frames where the object is still on screen but the model predicted no box. A detected frame carries a real `BboxObservation`; a gap frame carries `observation=None`.
 
 Properties:
 
-- `timestamp_microseconds` (int): Timestamp of the sighting in microseconds.
+- `timestamp_microseconds` (int): Timestamp of the observation in microseconds.
 - `observation` (Optional[BboxObservation]): The bounding box and its score at this timestamp, or `None` on a gap frame where the object was present but not detected.
 
 **`VideoAttributePrediction`**
-A chosen attribute option together with the scored timestamp ranges over which it held. The same `attribute_id` may appear more than once across an object's life with different options.
+A chosen attribute option together with the scored timestamp ranges over which it held. The same `attribute_id` may appear more than once across an object's life if the chosen option changes over time.
 
 Properties:
 
@@ -395,7 +439,7 @@ Properties:
 - `timestamp_ranges` (List[ScoredTimestampRange]): The scored spans over which this option was chosen.
 
 **`VideoCategoryPrediction`**
-A predicted category and its attribute predictions.
+A predicted category and its attribute predictions for a tracked object.
 
 Properties:
 
@@ -405,13 +449,13 @@ Properties:
 - `attributes` (List[VideoAttributePrediction]): Attribute predictions for this category.
 
 **`VideoDetectedObject`**
-A single entity tracked across the video: its lifespan, every bounding-box observation, and its categories.
+A single object tracked across the video: its lifespan, every bounding-box observation, and its categories.
 
 Properties:
 
 - `object_id` (int): Stable identifier for the tracked object.
 - `timestamp_ranges` (List[TimestampRange]): The spans over which the object was visible.
-- `bbox_observations` (List[VideoBboxObservation]): Bounding-box sightings over time, one per processed frame in the object's lifespan; gap frames carry a null bbox.
+- `bbox_observations` (List[VideoBboxObservation]): One observation per sampled frame in the object's lifespan. On gap frames (object on screen, no predicted box) the `VideoBboxObservation`'s `observation` is `None`.
 - `categories` (List[VideoCategoryPrediction]): Category and attribute predictions for this object.
 
 #### Response types
@@ -432,6 +476,7 @@ Properties:
 
 - `objects` (List[VideoDetectedObject]): Tracked objects and their predictions across the video.
 - `frames_per_second` (int): The number of frames per second that were sampled.
+- `frame_timestamps_microseconds` (List[int]): Sorted timestamps (in microseconds) of every processed frame, including frames where nothing was detected. Use it to snap an arbitrary playback position to a real frame before looking up detections.
 - `prediction_task_uuid` (str): The unique identifier for the prediction task.
 - `original_file_name` (Optional[str]): The file name of the original media, if provided.
 
@@ -443,9 +488,6 @@ Properties:
 - `prediction_task_uuid` (str): The unique identifier for the task.
 - `prediction_type` (str): Either `"image"` or `"video"`.
 - `status` (str): The current task status (`predicted`, `failed`, etc.).
-
-**`NormalizedBbox`**
-Type alias for normalized bounding boxes, represented as a tuple of four float values.
 
 ---
 
@@ -493,7 +535,7 @@ Performs a classification prediction on a video.
 | `frames_per_second` | `int` | `1` | How many frames per second to sample from the video. |
 | `timeout_seconds` | `Optional[int]` | `None` | Maximum wait time in seconds. Raises `PredictionTimeoutException` on timeout. `None` polls indefinitely. |
 
-**Returns:** `ClassificationPredictVideoResponse` — frame-level prediction results.
+**Returns:** `ClassificationPredictVideoResponse` — tracked objects and their predictions across the video.
 
 ---
 
