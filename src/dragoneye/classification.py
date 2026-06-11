@@ -16,10 +16,7 @@ from .models import (
     ClassificationPredictVideoResponse,
     PredictionTaskStatusResponse,
 )
-from .parquet_deserializer import (
-    deserialize_image_predictions,
-    deserialize_video_predictions,
-)
+from .parquet_deserializer import deserialize_object_forward_predictions
 from .types.common import (
     PredictionTaskState,
     PredictionTaskUUID,
@@ -196,7 +193,7 @@ class Classification:
         query = urlencode(
             {
                 "predictionTaskUuid": prediction_task_uuid,
-                "response_version": "parquet",
+                "response_version": "parquet_object",
             }
         )
         url = f"{self._client.base_api_url}/prediction-task/results?{query}"
@@ -226,10 +223,11 @@ class Classification:
             )
 
         original_file_name = response_headers.get("X-Original-File-Name")
+        objects = deserialize_object_forward_predictions(parquet_bytes)
 
         if prediction_type == "image":
             return ClassificationPredictImageResponse(
-                object_predictions=deserialize_image_predictions(parquet_bytes),
+                objects=objects,
                 prediction_task_uuid=prediction_task_uuid,
                 original_file_name=original_file_name,
             )
@@ -240,9 +238,7 @@ class Classification:
                     "Missing X-Frames-Per-Second header on video prediction response"
                 )
             return ClassificationPredictVideoResponse(
-                timestamp_us_to_predictions=deserialize_video_predictions(
-                    parquet_bytes
-                ),
+                objects=objects,
                 frames_per_second=int(frames_per_second_header),
                 prediction_task_uuid=prediction_task_uuid,
                 original_file_name=original_file_name,
@@ -391,7 +387,7 @@ class Classification:
 
         form_data = aiohttp.FormData()
         form_data.add_field("mimetype", mime_type)
-        form_data.add_field("response_version", "parquet")
+        form_data.add_field("response_version", "parquet_object")
         if file_name is not None:
             form_data.add_field("file_name", file_name)
 

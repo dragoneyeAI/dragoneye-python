@@ -3,14 +3,14 @@ from .classification import (
 )
 from .client import Dragoneye
 from .models import (
-    ClassificationAttributeOption,
-    ClassificationAttributeResponse,
-    ClassificationCategory,
-    ClassificationCategoryPrediction,
-    ClassificationObjectPrediction,
+    AttributePrediction,
+    BboxObservation,
+    CategoryPrediction,
     ClassificationPredictImageResponse,
     ClassificationPredictVideoResponse,
-    ClassificationVideoObjectPrediction,
+    DetectedObject,
+    ScoredTimestampRange,
+    TimestampRange,
 )
 from .types.common import NormalizedBbox
 from .types.exception import (
@@ -23,18 +23,18 @@ from .types.exception import (
 from .types.media import Image, Video
 
 __all__ = [
+    "AttributePrediction",
+    "BboxObservation",
+    "CategoryPrediction",
     "Classification",
-    "ClassificationAttributeOption",
-    "ClassificationAttributeResponse",
-    "ClassificationCategory",
-    "ClassificationCategoryPrediction",
-    "ClassificationObjectPrediction",
     "ClassificationPredictImageResponse",
     "ClassificationPredictVideoResponse",
-    "ClassificationVideoObjectPrediction",
+    "DetectedObject",
     "Dragoneye",
     "Image",
     "NormalizedBbox",
+    "ScoredTimestampRange",
+    "TimestampRange",
     "PredictionTaskBeginError",
     "PredictionTaskError",
     "PredictionTaskResultsUnavailableError",
