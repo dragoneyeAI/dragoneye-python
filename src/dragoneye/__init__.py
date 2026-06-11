@@ -3,10 +3,10 @@ from .classification import (
 )
 from .client import Dragoneye
 from .models import (
+    BboxObservation,
     ClassificationPredictImageResponse,
     ClassificationPredictVideoResponse,
     ImageAttributePrediction,
-    ImageBboxObservation,
     ImageCategoryPrediction,
     ImageDetectedObject,
     ScoredTimestampRange,
@@ -27,13 +27,13 @@ from .types.exception import (
 from .types.media import Image, Video
 
 __all__ = [
+    "BboxObservation",
     "Classification",
     "ClassificationPredictImageResponse",
     "ClassificationPredictVideoResponse",
     "Dragoneye",
     "Image",
     "ImageAttributePrediction",
-    "ImageBboxObservation",
     "ImageCategoryPrediction",
     "ImageDetectedObject",
     "NormalizedBbox",

@@ -37,8 +37,15 @@ class ScoredTimestampRange(BaseModel):
     score: float
 
 
-class _BboxObservationBase(BaseModel):
-    """Fields shared by every bounding-box sighting, image or video."""
+class BboxObservation(BaseModel):
+    """A bounding box and the confidence of the detection that produced it.
+
+    Both fields are always present: a ``BboxObservation`` only ever exists where
+    the model actually placed a box. Absence — a video gap frame where the
+    tracked object was present but not detected — is represented by a ``None``
+    ``observation`` on :class:`VideoBboxObservation`, never by a
+    ``BboxObservation`` with null fields.
+    """
 
     normalized_bbox: NormalizedBbox
     bbox_score: float
@@ -64,10 +71,6 @@ class _CategoryPredictionBase(BaseModel):
 # ---- Image (timestamp-free) ----
 
 
-class ImageBboxObservation(_BboxObservationBase):
-    """The bounding box of a detected object in an image."""
-
-
 class ImageAttributePrediction(_AttributePredictionBase):
     """A chosen attribute option for an object in an image, with its score."""
 
@@ -82,21 +85,29 @@ class ImageDetectedObject(BaseModel):
     """One detected object in an image: its bounding box and categories.
 
     Unlike :class:`VideoDetectedObject`, an image object has no time dimension:
-    a single :class:`ImageBboxObservation` and a single ``score`` per attribute.
+    a single :class:`BboxObservation` and a single ``score`` per attribute.
     """
 
     object_id: int
-    bbox_observation: ImageBboxObservation
+    bbox_observation: BboxObservation
     categories: List[ImageCategoryPrediction]
 
 
 # ---- Video (time-aware) ----
 
 
-class VideoBboxObservation(_BboxObservationBase):
-    """One bounding-box sighting of a tracked object at a single timestamp."""
+class VideoBboxObservation(BaseModel):
+    """One sighting of a tracked object at a single timestamp.
+
+    Observations span every processed frame within the track's lifespan. A
+    detected frame carries a real :class:`BboxObservation`; a "predicted-but-
+    undetected" gap frame — where the object was present but not detected —
+    carries ``observation=None``. ``timestamp_microseconds`` is always present,
+    even on a gap frame.
+    """
 
     timestamp_microseconds: int
+    observation: Optional[BboxObservation]
 
 
 class VideoAttributePrediction(_AttributePredictionBase):

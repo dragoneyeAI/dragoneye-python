@@ -6,6 +6,13 @@ every bbox observation over time, its categories, and each category's attribute
 time-runs — is nested inside that single row. Images are encoded the same way as
 video, just with all timestamps equal to ``0``.
 
+A video track's ``bbox_observations`` span every processed frame within the
+track's lifespan. Detected frames carry a real bbox and score; "predicted-but-
+undetected" gap frames — frames where the track was present but not detected —
+carry a null ``normalized_bbox`` and ``bbox_score`` on the wire. These map to a
+:class:`VideoBboxObservation` whose ``observation`` is ``None`` — the timestamp
+is preserved, the box is simply absent.
+
 The wire format is identical for both media types, but the SDK exposes two
 different shapes. Video rows map straight to the time-aware
 :class:`VideoDetectedObject`. Image rows are *collapsed* into the timestamp-free
@@ -19,8 +26,8 @@ and each attribute's lone scored timestamp range becomes a bare ``score``.
                           })
     bbox_observations:    List(Struct{
                               timestamp_microseconds: Int64,
-                              normalized_bbox:        Array(Float32, 4),
-                              bbox_score:             Float32,
+                              normalized_bbox:        Array(Float32, 4),  # nullable
+                              bbox_score:             Float32,            # nullable
                           })
     categories:           List(Struct{
                               category_id: Int64,
@@ -50,8 +57,8 @@ from typing import Any, Dict, List
 import polars as pl
 
 from .models import (
+    BboxObservation,
     ImageAttributePrediction,
-    ImageBboxObservation,
     ImageCategoryPrediction,
     ImageDetectedObject,
     ScoredTimestampRange,
@@ -62,6 +69,18 @@ from .models import (
     VideoDetectedObject,
 )
 from .types.common import NormalizedBbox
+
+
+def _to_bbox_observation(value: Dict[str, Any]) -> BboxObservation:
+    """Build a :class:`BboxObservation` from a parquet observation struct.
+
+    Assumes a real detection: ``normalized_bbox`` and ``bbox_score`` are
+    non-null. Gap frames are handled by the caller, which omits the observation
+    entirely rather than passing a null bbox here."""
+    return BboxObservation(
+        normalized_bbox=NormalizedBbox(tuple(value["normalized_bbox"])),
+        bbox_score=value["bbox_score"],
+    )
 
 
 def _to_timestamp_range(value: Dict[str, Any]) -> TimestampRange:
@@ -83,10 +102,13 @@ def _to_scored_timestamp_range(value: Dict[str, Any]) -> ScoredTimestampRange:
 
 
 def _to_video_bbox_observation(value: Dict[str, Any]) -> VideoBboxObservation:
+    # A null ``normalized_bbox`` marks a predicted-but-undetected gap frame:
+    # the timestamp is still real, but there is no box, so ``observation`` is
+    # ``None``. Bbox and score are always null together on the wire.
+    raw_bbox = value["normalized_bbox"]
     return VideoBboxObservation(
         timestamp_microseconds=value["timestamp_microseconds"],
-        normalized_bbox=NormalizedBbox(tuple(value["normalized_bbox"])),
-        bbox_score=value["bbox_score"],
+        observation=_to_bbox_observation(value) if raw_bbox is not None else None,
     )
 
 
@@ -135,13 +157,6 @@ def _to_video_detected_object(row: Dict[str, Any]) -> VideoDetectedObject:
 # ---- Image: collapse the time dimension out of the same parquet rows ----
 
 
-def _to_image_bbox_observation(value: Dict[str, Any]) -> ImageBboxObservation:
-    return ImageBboxObservation(
-        normalized_bbox=NormalizedBbox(tuple(value["normalized_bbox"])),
-        bbox_score=value["bbox_score"],
-    )
-
-
 def _to_image_attribute_prediction(value: Dict[str, Any]) -> ImageAttributePrediction:
     # An image attribute has exactly one timestamp range.
     return ImageAttributePrediction(
@@ -166,10 +181,11 @@ def _to_image_category_prediction(value: Dict[str, Any]) -> ImageCategoryPredict
 
 
 def _to_image_detected_object(row: Dict[str, Any]) -> ImageDetectedObject:
-    # An image object always has exactly one bbox observation (at timestamp 0).
+    # An image object always has exactly one bbox observation (at timestamp 0),
+    # and an image detection always carries a real box (never a gap frame).
     return ImageDetectedObject(
         object_id=row["object_id"],
-        bbox_observation=_to_image_bbox_observation(row["bbox_observations"][0]),
+        bbox_observation=_to_bbox_observation(row["bbox_observations"][0]),
         categories=[
             _to_image_category_prediction(cat)
             for cat in (row["categories"] or [])
