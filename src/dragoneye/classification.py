@@ -19,6 +19,8 @@ from .models import (
 from .parquet_deserializer import (
     deserialize_object_forward_image_predictions,
     deserialize_object_forward_video_predictions,
+    deserialize_video_frame_timestamps,
+    split_prediction_archive,
 )
 from .types.common import (
     PredictionTaskState,
@@ -217,7 +219,7 @@ class Classification:
             return body_bytes, response_headers
 
         try:
-            parquet_bytes, response_headers = await _make_request()
+            body_bytes, response_headers = await _make_request()
         except PredictionTaskResultsUnavailableError:
             raise
         except ClientError as error:
@@ -225,11 +227,20 @@ class Classification:
                 f"Error getting prediction task results: {error}"
             )
 
+        # The body is a STORED ZIP archive: predictions.parquet (always) plus,
+        # for videos, frame_timestamps.parquet.
+        members = split_prediction_archive(body_bytes)
+        if "predictions.parquet" not in members:
+            raise PredictionTaskResultsUnavailableError(
+                "Prediction results archive missing predictions.parquet"
+            )
+        predictions_bytes = members["predictions.parquet"]
+
         original_file_name = response_headers.get("X-Original-File-Name")
 
         if prediction_type == "image":
             return ClassificationPredictImageResponse(
-                objects=deserialize_object_forward_image_predictions(parquet_bytes),
+                objects=deserialize_object_forward_image_predictions(predictions_bytes),
                 prediction_task_uuid=prediction_task_uuid,
                 original_file_name=original_file_name,
             )
@@ -239,9 +250,16 @@ class Classification:
                 raise PredictionTaskResultsUnavailableError(
                     "Missing X-Frames-Per-Second header on video prediction response"
                 )
+            frame_timestamps_bytes = members.get("frame_timestamps.parquet")
+            frame_timestamps_microseconds = (
+                deserialize_video_frame_timestamps(frame_timestamps_bytes)
+                if frame_timestamps_bytes is not None
+                else []
+            )
             return ClassificationPredictVideoResponse(
-                objects=deserialize_object_forward_video_predictions(parquet_bytes),
+                objects=deserialize_object_forward_video_predictions(predictions_bytes),
                 frames_per_second=int(frames_per_second_header),
+                frame_timestamps_microseconds=frame_timestamps_microseconds,
                 prediction_task_uuid=prediction_task_uuid,
                 original_file_name=original_file_name,
             )

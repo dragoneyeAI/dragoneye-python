@@ -148,5 +148,10 @@ class ClassificationPredictImageResponse(BaseModel):
 class ClassificationPredictVideoResponse(BaseModel):
     objects: List[VideoDetectedObject]
     frames_per_second: int
+    # Sorted timestamps (microseconds) of every processed frame, including
+    # frames with zero detections. The authoritative frame list — unlike
+    # ``bbox_observations``/``timestamp_ranges``, which only span an object's
+    # lifespan. Use it to snap a playhead/scrub time to the nearest real frame.
+    frame_timestamps_microseconds: List[int]
     prediction_task_uuid: PredictionTaskUUID
     original_file_name: Optional[str]

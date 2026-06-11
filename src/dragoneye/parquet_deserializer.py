@@ -1,5 +1,11 @@
 """Convert a zstd-compressed parquet prediction blob into typed SDK models.
 
+The prediction-results body is delivered as a STORED ZIP archive holding two
+parquet members: ``predictions.parquet`` (the object-forward predictions parsed
+here) and, for videos, ``frame_timestamps.parquet`` (the authoritative list of
+every processed frame timestamp). Use :func:`split_prediction_archive` to unzip
+the body, then hand each member to the relevant deserializer below.
+
 This implements the **object-forward** schema: the server returns one parquet
 row per tracked object. Everything about that object — its presence ranges,
 every bbox observation over time, its categories, and each category's attribute
@@ -52,6 +58,7 @@ parquet row to typed object.
 """
 
 import io
+import zipfile
 from typing import Any, Dict, List
 
 import polars as pl
@@ -119,8 +126,7 @@ def _to_video_attribute_prediction(value: Dict[str, Any]) -> VideoAttributePredi
         option_id=value["option_id"],
         option_name=value["option_name"],
         timestamp_ranges=[
-            _to_scored_timestamp_range(tr)
-            for tr in (value["timestamp_ranges"] or [])
+            _to_scored_timestamp_range(tr) for tr in (value["timestamp_ranges"] or [])
         ],
     )
 
@@ -131,8 +137,7 @@ def _to_video_category_prediction(value: Dict[str, Any]) -> VideoCategoryPredict
         name=value["name"],
         score=value["score"],
         attributes=[
-            _to_video_attribute_prediction(attr)
-            for attr in (value["attributes"] or [])
+            _to_video_attribute_prediction(attr) for attr in (value["attributes"] or [])
         ],
     )
 
@@ -144,12 +149,10 @@ def _to_video_detected_object(row: Dict[str, Any]) -> VideoDetectedObject:
             _to_timestamp_range(tr) for tr in (row["timestamp_ranges"] or [])
         ],
         bbox_observations=[
-            _to_video_bbox_observation(obs)
-            for obs in (row["bbox_observations"] or [])
+            _to_video_bbox_observation(obs) for obs in (row["bbox_observations"] or [])
         ],
         categories=[
-            _to_video_category_prediction(cat)
-            for cat in (row["categories"] or [])
+            _to_video_category_prediction(cat) for cat in (row["categories"] or [])
         ],
     )
 
@@ -174,8 +177,7 @@ def _to_image_category_prediction(value: Dict[str, Any]) -> ImageCategoryPredict
         name=value["name"],
         score=value["score"],
         attributes=[
-            _to_image_attribute_prediction(attr)
-            for attr in (value["attributes"] or [])
+            _to_image_attribute_prediction(attr) for attr in (value["attributes"] or [])
         ],
     )
 
@@ -187,8 +189,7 @@ def _to_image_detected_object(row: Dict[str, Any]) -> ImageDetectedObject:
         object_id=row["object_id"],
         bbox_observation=_to_bbox_observation(row["bbox_observations"][0]),
         categories=[
-            _to_image_category_prediction(cat)
-            for cat in (row["categories"] or [])
+            _to_image_category_prediction(cat) for cat in (row["categories"] or [])
         ],
     )
 
@@ -216,3 +217,29 @@ def deserialize_object_forward_image_predictions(
     """
     df = pl.read_parquet(io.BytesIO(parquet_bytes))
     return [_to_image_detected_object(row) for row in df.iter_rows(named=True)]
+
+
+# ---- Response archive (ZIP) handling ----
+
+
+def split_prediction_archive(body: bytes) -> Dict[str, bytes]:
+    """Unzip the prediction-results ZIP into ``name -> raw parquet bytes``.
+
+    Members are STORED (not deflated): each is the raw parquet blob verbatim, so
+    reading a member hands straight to the parquet reader. Expect
+    ``predictions.parquet`` (always) and ``frame_timestamps.parquet`` (videos).
+    """
+    with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        return {name: zf.read(name) for name in zf.namelist()}
+
+
+def deserialize_video_frame_timestamps(parquet_bytes: bytes) -> List[int]:
+    """Parse ``frame_timestamps.parquet`` into a sorted list of frame timestamps
+    in microseconds.
+
+    One row per processed frame, including frames with zero detections. Only the
+    ``timestamp_microseconds`` column is needed (``image_id`` is ignored); values
+    are coerced to ``int`` and sorted ascending for playhead snapping.
+    """
+    df = pl.read_parquet(io.BytesIO(parquet_bytes))
+    return sorted(int(ts) for ts in df["timestamp_microseconds"].to_list())
