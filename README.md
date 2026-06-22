@@ -147,7 +147,7 @@ Below is an example of what a `ClassificationPredictVideoResponse` looks like fo
 ClassificationPredictVideoResponse(
     prediction_task_uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     original_file_name="any-file-name",
-    frames_per_second=1,
+    frames_per_second=5,
     # Every processed frame's timestamp (microseconds), sorted — including
     # frames where nothing was detected.
     frame_timestamps_microseconds=[0, 1000000, 2000000, 3000000],
@@ -475,7 +475,7 @@ The response object returned after predicting a video.
 Properties:
 
 - `objects` (List[VideoDetectedObject]): Tracked objects and their predictions across the video.
-- `frames_per_second` (int): The number of frames per second that were sampled.
+- `frames_per_second` (int): The rate at which your video was sampled for prediction — **not** the video's own frame rate. Reflects the value you passed to `predict_video`, or the server default if you didn't pass one. See [the frame rate docs](https://docs.dragoneye.ai/docs/integrating/python-sdk#frame-rate) for context.
 - `frame_timestamps_microseconds` (List[int]): Sorted timestamps (in microseconds) of every processed frame, including frames where nothing was detected. Use it to snap an arbitrary playback position to a real frame before looking up detections.
 - `prediction_task_uuid` (str): The unique identifier for the prediction task.
 - `original_file_name` (Optional[str]): The file name of the original media, if provided.
@@ -521,7 +521,7 @@ Performs a classification prediction on a single image.
 await client.classification.predict_video(
     media: Video,
     model_name: str,
-    frames_per_second: int = 1,
+    frames_per_second: Optional[int] = None,
     timeout_seconds: Optional[int] = None,
 ) -> ClassificationPredictVideoResponse
 ```
@@ -532,7 +532,7 @@ Performs a classification prediction on a video.
 |-----------|------|---------|-------------|
 | `media` | `Video` | *required* | A `Video` object (from `from_path`, `from_bytes`, or `from_stream`). |
 | `model_name` | `str` | *required* | The name of the model to use for prediction. |
-| `frames_per_second` | `int` | `1` | How many frames per second to sample from the video. |
+| `frames_per_second` | `Optional[int]` | `None` | The rate at which we sample your video for prediction — **not** the video's own frame rate. For example, `2` evaluates two frames for every second of video, regardless of how many frames that second actually contains. Optional: leave it as `None` to use the server default. See [the frame rate docs](https://docs.dragoneye.ai/docs/integrating/python-sdk#frame-rate) for context. |
 | `timeout_seconds` | `Optional[int]` | `None` | Maximum wait time in seconds. Raises `PredictionTimeoutException` on timeout. `None` polls indefinitely. |
 
 **Returns:** `ClassificationPredictVideoResponse` — tracked objects and their predictions across the video.

@@ -118,10 +118,18 @@ class Classification:
         self,
         media: Video,
         model_name: str,
-        frames_per_second: int = 1,
+        frames_per_second: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
         **kwargs: Any,
     ) -> ClassificationPredictVideoResponse:
+        """
+        Performs a classification prediction on a video.
+
+        If `frames_per_second` is not provided, the server default is
+        used. See
+        https://docs.dragoneye.ai/docs/integrating/python-sdk#frame-rate
+        for context.
+        """
         return await self._predict_unified(
             media=media,
             model_name=model_name,
