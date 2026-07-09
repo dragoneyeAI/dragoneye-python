@@ -127,7 +127,7 @@ class Classification:
 
         If `frames_per_second` is not provided, the server default is
         used. See
-        https://docs.dragoneye.ai/docs/integrating/python-sdk#frame-rate
+        https://docs.dragoneye.ai/integrating/python-sdk#frame-rate
         for context.
         """
         return await self._predict_unified(
